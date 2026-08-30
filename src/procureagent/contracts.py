@@ -911,10 +911,6 @@ class ProcureScenario:
     initial_state: RestaurantState
     payment_proofs: tuple[PaymentProof, ...]
     adversarial_documents: tuple[AdversarialDocumentMetadata, ...]
-    # Simulated daily restaurant revenue, credited at the end of each committed
-    # day. Defaults to zero so restaurant_demo_v1 -- whose bytes are SHA-256
-    # pinned and which therefore cannot carry this key -- behaves identically.
-    daily_cash_inflow_minor: int = 0
 
     def __post_init__(self) -> None:
         version = _audit_id(self.contract_version, "contract_version")
@@ -925,11 +921,6 @@ class ProcureScenario:
             self,
             "horizon_days",
             _integer(self.horizon_days, "horizon_days", minimum=1, maximum=365),
-        )
-        object.__setattr__(
-            self,
-            "daily_cash_inflow_minor",
-            _integer(self.daily_cash_inflow_minor, "daily_cash_inflow_minor", minimum=0),
         )
         suppliers = _objects(self.suppliers, SupplierIdentity, "suppliers")
         payment_proofs = _objects(self.payment_proofs, PaymentProof, "payment_proofs")
@@ -1009,22 +1000,9 @@ def _list(value: object, path: str) -> list[Any]:
     return value
 
 
-def _exact_keys(
-    value: Mapping[str, Any],
-    expected: set[str],
-    path: str,
-    *,
-    optional: frozenset[str] = frozenset(),
-) -> None:
-    """Reject missing and unexpected keys.
-
-    ``optional`` names keys that may be present or absent. It exists so a newer
-    contract field can be added without invalidating an already hash-pinned
-    fixture that predates it; every other call site keeps exact-key behaviour.
-    """
-
+def _exact_keys(value: Mapping[str, Any], expected: set[str], path: str) -> None:
     missing = expected - set(value)
-    extra = set(value) - expected - optional
+    extra = set(value) - expected
     if missing or extra:
         details = []
         if missing:
@@ -1177,9 +1155,7 @@ def load_scenario(path: str | Path) -> ProcureScenario:
         "payment_proofs",
         "adversarial_documents",
     }
-    _exact_keys(
-        root, expected_root, "scenario", optional=frozenset({"daily_cash_inflow_minor"})
-    )
+    _exact_keys(root, expected_root, "scenario")
     restaurant = _mapping(root["restaurant"], "restaurant")
     _exact_keys(
         restaurant,
@@ -1224,7 +1200,6 @@ def load_scenario(path: str | Path) -> ProcureScenario:
         initial_state=state,
         payment_proofs=payment_proofs,
         adversarial_documents=adversarial,
-        daily_cash_inflow_minor=root.get("daily_cash_inflow_minor", 0),
     )
 
 

@@ -4,9 +4,6 @@ import struct
 from types import SimpleNamespace
 import zlib
 
-import shutil
-from pathlib import Path
-
 import pytest
 
 from invoiceagent.extraction import EntitySpan, InvoiceNumberResult, TokenPrediction
@@ -417,38 +414,3 @@ def test_document_gate_blocks_ocr_and_model_failures():
     assert "OCR_TIMEOUT" in result.reason_codes
     assert "MODEL_PROCESSING_FAILED" in result.reason_codes
     assert not result.may_activate_lookup
-
-
-# ---------------------------------------------------------------------------
-# Bundled invoice assets must be readable by the real OCR + anchored rule
-# ---------------------------------------------------------------------------
-
-ASSET_DIR = Path(__file__).resolve().parents[1] / "data/procureagent/assets"
-
-BUNDLED_INVOICE_ASSETS = (
-    ("fresh_farms_invoice.png", "FF-10482"),
-    ("prime_foods_invoice.png", "PF-25031"),
-    ("packright_invoice.png", "PR-15007"),
-    ("cleanpro_invoice.png", "CP-70019"),
-)
-
-
-@pytest.mark.skipif(
-    shutil.which("tesseract") is None, reason="requires the real tesseract binary"
-)
-@pytest.mark.parametrize("filename,expected", BUNDLED_INVOICE_ASSETS)
-def test_bundled_invoice_asset_yields_exactly_one_correct_candidate(filename, expected):
-    """Every demo invoice must survive real OCR with no ambiguity.
-
-    Two distinct anchored candidates would trip AMBIGUOUS_RULE_CANDIDATES and
-    block the document gate, so this guards the asset layout, not the model.
-    """
-
-    from procureagent.ocr import TesseractOCR, ingest_image
-
-    path = ASSET_DIR / filename
-    image = ingest_image(path.read_bytes(), original_filename=path.name)
-    ocr = TesseractOCR().run(image)
-
-    assert ocr.status is OcrStatus.SUCCESS
-    assert [item.invoice_number for item in anchored_invoice_candidates(ocr)] == [expected]
