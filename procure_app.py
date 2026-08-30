@@ -406,7 +406,7 @@ GUIDED_WIDGET_KEYS = (
 # can therefore look identical while failing ``isinstance`` after a class was
 # redefined. Bump this value whenever workflow object schemas change; unrelated
 # preferences such as the selected route remain untouched.
-APP_SESSION_SCHEMA = "invoiceagent-guided-v3-layoutlm-tokens-20260830"
+APP_SESSION_SCHEMA = "invoiceagent-guided-v4-governed-week-20260830"
 if st.session_state.get("invoiceagent-session-schema") != APP_SESSION_SCHEMA:
     for stale_key in (
         *FLOW_KEYS,
@@ -2335,10 +2335,10 @@ def render_identity_provenance(proposal: Any) -> None:
         )
     render_table(rows)
     st.caption(
-        "Documents are read on day 0 by real Tesseract and the local model. Later days "
-        "re-use those recorded human decisions; no document was uploaded or re-read on "
-        "this day. Carrying an identity forward asserts only that this invoice number "
-        "was verified against a real document once — not that the supplier re-sent it."
+        "Only identities labeled HUMAN_REVIEWED_DOCUMENT were read by Tesseract and "
+        "LayoutLMv3 in this session. FIXTURE_REPLAY identities come from the locked "
+        "synthetic scenario. Later days carry that exact provenance forward; no "
+        "document is re-read."
     )
 
 

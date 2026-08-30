@@ -89,11 +89,11 @@ Click the explicit identity **CONFIRM** action. **CORRECT** and **REJECT** are t
 
 Reveal the synthetic business lookup, then the policy result:
 
-1. **Identity:** was `FF-10482` read correctly? Every supplier now has a bundled
-   invoice image, so you can read all four documents rather than one. Each is
-   verified to yield exactly one anchored candidate under real Tesseract; each
-   still needs its own human CONFIRM, because the frozen 0.80 confidence
-   threshold routes them to review.
+1. **Identity:** was `FF-10482` read correctly? Fresh Farms is the only invoice
+   sent through the live Tesseract + LayoutLMv3 + human-review path in this
+   session. The other three bundled synthetic invoice images have recorded
+   Tesseract + anchored-rule OCR checks only; their week-view identities are
+   labeled `FIXTURE_REPLAY`, not model-read or human-confirmed.
 2. **Priority:** first Fresh Farms, second Prime Foods, third PackRight, then CleanPro review. Show inventory runway and lead time beside the ranking.
 3. **Action:** Fresh Farms $1,500 and Prime Foods $2,500 are exact verified full-payment actions. The agent cannot invent a supplier or amount.
 

@@ -8,6 +8,16 @@ Small and medium-sized businesses still receive paper invoices and receipts. Som
 
 For a restaurant, the problem is also operational: when supplier bills exceed the cash available today, paying only the oldest invoice can leave the kitchen without essential produce or meat. The owner needs clear records, safe priorities, and proof—not another chatbot.
 
+```mermaid
+flowchart TB
+    A["Paper invoices + receipts"] --> B["Manual entry and filing"]
+    B --> C["Mistyped or missing IDs"]
+    B --> D["Payment proof gets separated"]
+    C --> E["Unclear Accounts Payable"]
+    D --> E
+    E --> F["Harder cash and supplier decisions"]
+```
+
 ## Task & Action
 
 We built a small, local-first document workflow with honest boundaries:
@@ -20,38 +30,33 @@ We built a small, local-first document workflow with honest boundaries:
 - **An RL-ready receipt reward** scores exact proof as `+10`, safe review as `-1`, and unsafe acceptance as `-25`. No receipt policy or model was trained with this signal.
 - **A guided Streamlit UI** keeps the business story simple while exposing real code and evidence for engineers. The same app ships in a Docker container for deployment.
 
-The recording path is four steps:
+The guided path is five clear steps:
 
 1. **Read invoice.** Use the bundled Fresh Farms PNG or upload PNG/JPEG. Tesseract exposes every OCR token; the LayoutLMv3 specialist proposes `FF-10482`; a separate rule grounds the total.
 2. **Confirm and plan.** A person must **CONFIRM**, **CORRECT**, or **REJECT** before the synthetic AP lookup opens. The deterministic policy explains **PAY / DEFER / VERIFY** priorities.
 3. **Approve simulated payment.** The verifier checks the complete batch, then one explicit click advances ProcureGym. Nothing reaches a bank, ERP, or real accounting ledger.
 4. **Verify receipt.** Tesseract plus deterministic receipt rules compare exact proof. A valid receipt changes Fresh Farms to `PAID_CONFIRMED` without deducting cash again.
+5. **Review history and continue the week.** The dashboard separates open, awaiting-proof, and completed invoices. An optional governed-week view lets the operator **APPROVE**, **MODIFY**, or **REJECT** each later day with provenance carried forward.
 
 ```mermaid
-flowchart LR
-    subgraph READ[Read the paper invoice]
-        A[Invoice image] --> B[Tesseract 5<br/>every word + confidence + box]
-        B --> C[LayoutLMv3 + LoRA<br/>adapted by Ryan · invoice number only]
-        B --> D[Deterministic rule<br/>displayed total]
-        C --> E{Human confirms<br/>document identity}
-        D --> E
-    end
+flowchart TB
+    A["Invoice or receipt image"] --> B["Tesseract 5 OCR"]
+    B --> C["LayoutLMv3: invoice ID only"]
+    B --> D["Rules: amount + receipt fields"]
+    C --> E["Human verifies invoice identity"]
+    E --> F["Locked synthetic AP lookup"]
+    D --> G["Exact receipt-proof gate"]
+```
 
-    subgraph ACT[Plan and approve]
-        E -->|confirmed| F[Synthetic AP record<br/>and PAY / DEFER / VERIFY plan]
-        E -->|uncertain| X[Correct or reject]
-        F --> G{Verifier + explicit<br/>operator approval}
-        G --> H[ProcureGym<br/>simulated payment once]
-    end
-
-    subgraph PROVE[Match proof and close the loop]
-        H --> I[Receipt image]
-        I --> J[Tesseract +<br/>deterministic parser]
-        J --> K{Supplier + invoice +<br/>amount + currency match?}
-        K -->|yes| L[Fresh Farms<br/>PAID_CONFIRMED]
-        K -->|no| M[Keep proof pending<br/>and request review]
-        L --> N[AP history<br/>Open 2 · Awaiting proof 1 · Completed 1]
-    end
+```mermaid
+flowchart TB
+    A["Verified AP state"] --> B["Rank PAY / DEFER / VERIFY"]
+    B --> C{"Batch verifier passes?"}
+    C -->|No| D["Modify or reject"]
+    C -->|Yes| E["Operator approves"]
+    E --> F["ProcureGym simulation"]
+    F --> G["Receipt proof + AP history"]
+    F --> H["Optional governed week"]
 ```
 
 ### Team
@@ -98,6 +103,17 @@ The approved batch is interpreted as **Dr Accounts Payable—Fresh Farms $1,500 
 
 This supports **working-capital discipline** by putting cash, supplier obligations, due dates, operational inventory runway, and proof status in one view. It is not a full net-working-capital calculation. Formal net working capital requires all current assets minus all current liabilities; Accounts Receivable, balance-sheet inventory valuation, and other current assets and liabilities are outside this demo.
 
+```mermaid
+flowchart TB
+    A["Receipt OCR"] --> B{"All six proof fields match?"}
+    B -->|Yes| C["Human confirms proof"]
+    C --> D["PAID_CONFIRMED"]
+    D --> E["Completed AP history"]
+    B -->|No; ID found| F["Receipt ID captured"]
+    F --> G["SAFE_REVIEW · reward -1"]
+    G --> H["AP stays payment-approved"]
+```
+
 ### Live demo
 
 > **[Open the temporary public InvoiceAgent demo](https://conflicts-understand-rings-logged.trycloudflare.com)**
@@ -108,7 +124,7 @@ This supports **working-capital discipline** by putting cash, supplier obligatio
 
 ![InvoiceAgent guided demo](docs/assets/invoiceagent-dashboard.png)
 
-The default screen is one guided path: **Read invoice → Confirm and plan → Approve simulation → Match receipt → View AP history**. Every OCR word, box, confidence, business label, and source remains inspectable. Non-technical viewers get the short story; engineers can expand **Technical evidence** to inspect code paths, raw OCR, provenance, model version, latency, scores, hashes, verifier checks, reward output, and deployment details.
+The default screen is one guided path: **Read invoice → Confirm and plan → Approve simulation → Match receipt → View AP history → optionally continue the governed week**. Every OCR word, box, confidence, business label, and source remains inspectable. Non-technical viewers get the short story; engineers can expand **Technical evidence** to inspect code paths, raw OCR, provenance, model version, latency, scores, hashes, verifier checks, reward output, and deployment details.
 
 The in-app restaurant hero at [`invoiceagent-restaurant-hero.jpg`](data/procureagent/assets/invoiceagent-restaurant-hero.jpg) is an original generated illustration created for this demo; its [provenance is committed beside it](data/procureagent/assets/invoiceagent-restaurant-hero.provenance.json). It is not a photograph of Sugar & Spice, its restaurant, or its staff, and no affiliation is implied.
 

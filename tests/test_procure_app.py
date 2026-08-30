@@ -18,7 +18,7 @@ from procureagent.ui_adapters import _reset_cached_ryan_adapter_for_tests
 
 
 APP = str((Path(__file__).resolve().parents[1] / "procure_app.py").resolve())
-SESSION_SCHEMA = "invoiceagent-guided-v3-layoutlm-tokens-20260830"
+SESSION_SCHEMA = "invoiceagent-guided-v4-governed-week-20260830"
 
 
 def boot() -> AppTest:
