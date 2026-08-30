@@ -628,7 +628,7 @@ def render_reward_signal(proof_gate: Any) -> Any:
 
 def render_step_header(number: int, title: str, description: str, status: str) -> None:
     st.markdown(
-        f'<header class="pa-step-head"><div><span class="number">Step {number} of 4</span>'
+        f'<header class="pa-step-head"><div><span class="number">Step {number} of {len(STEP_META)}</span>'
         f'<h2>{esc(title)}</h2><p>{esc(description)}</p></div>'
         f'<span class="pa-step-status">{esc(status)}</span></header>',
         unsafe_allow_html=True,
