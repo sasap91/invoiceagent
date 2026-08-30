@@ -12,20 +12,21 @@ For a restaurant, the problem is also operational: when supplier bills exceed th
 
 We built a small, local-first document workflow with honest boundaries:
 
-- **Tesseract 5 OCR** runs locally and returns every word, confidence, and normalized box.
+- **Tesseract 5 OCR** runs locally and returns every word, confidence, and normalized box. All four supplier invoices are bundled as images, so each one is genuinely read rather than looked up.
 - **Ryan Nie's supervised LayoutLMv3 + LoRA small document specialist**—the demo's SLM component—proposes the invoice-number token only. It does not perform OCR, extract the invoice total, read the receipt, rank suppliers, or choose payments.
 - **Deterministic rules** ground the displayed invoice total and parse receipt supplier, invoice number, amount, currency, paid date, and receipt ID.
 - **Human gates and a batch verifier** require explicit document confirmation and payment approval; uncertainty fails closed.
-- **ProcureGym** applies approved actions to a seeded restaurant simulation so the team can measure cash, inventory runway, fees, and supplier outcomes without touching a real system.
+- **ProcureGym** applies approved actions to a seeded restaurant simulation so the team can measure cash, inventory runway, fees, and supplier outcomes without touching a real system. It runs the full seven-day horizon, one operator approval per day.
 - **An RL-ready receipt reward** scores exact proof as `+10`, safe review as `-1`, and unsafe acceptance as `-25`. No receipt policy or model was trained with this signal.
 - **A guided Streamlit UI** keeps the business story simple while exposing real code and evidence for engineers. The same app ships in a Docker container for deployment.
 
-The recording path is four steps:
+The recording path is five steps:
 
 1. **Read invoice.** Use the bundled Fresh Farms PNG or upload PNG/JPEG. Tesseract exposes every OCR token; the LayoutLMv3 specialist proposes `FF-10482`; a separate rule grounds the total.
 2. **Confirm and plan.** A person must **CONFIRM**, **CORRECT**, or **REJECT** before the synthetic AP lookup opens. The deterministic policy explains **PAY / DEFER / VERIFY** priorities.
 3. **Approve simulated payment.** The verifier checks the complete batch, then one explicit click advances ProcureGym. Nothing reaches a bank, ERP, or real accounting ledger.
 4. **Verify receipt.** Tesseract plus deterministic receipt rules compare exact proof. A valid receipt changes Fresh Farms to `PAID_CONFIRMED` without deducting cash again.
+5. **Continue the week.** The remaining simulated days run one explicit operator decision at a time—**APPROVE**, **MODIFY**, or **REJECT**. Proposing a day is pure and changes nothing; only APPROVE advances ProcureGym. This is where the agent decides *when* to pay, not just what.
 
 ```mermaid
 flowchart LR
@@ -95,6 +96,22 @@ The locked scenario begins with **$5,000 cash** and **$6,200 of supplier obligat
 | **Completed (1)** | Fresh Farms `FF-10482` · $1,500 · `PAID_CONFIRMED` with receipt `RCPT-FF-10482` |
 
 The approved batch is interpreted as **Dr Accounts Payable—Fresh Farms $1,500 + Dr Accounts Payable—Prime Foods $2,500 / Cr Cash $4,000** once. It is a simulation, not a real general-ledger posting. Fresh Farms receipt confirmation adds proof and changes status only: cash remains $1,000 and the second cash impact is **$0**. Prime Foods remains paid in the simulation but awaiting proof.
+
+### Deciding *when* to pay
+
+Paying the right supplier the right amount is only two thirds of the problem. The third is timing, and the locked scenario cannot show it: after the two critical suppliers there is $1,000 left, PackRight's $1,500 never becomes affordable again, and the bounded oracle independently agrees it should be paid **never**. Schedule regret is exactly `0.000`. The remaining days are deliberate no-ops, and the demo says so rather than clicking through them in silence.
+
+So a second scenario exists. [`scenario_cashflow_v1.json`](data/procureagent/scenario_cashflow_v1.json) is identical to the frozen fixture apart from **$250/day of simulated revenue**, credited after each committed batch so it can never fund a payment the verifier approved against this morning's cash:
+
+| Day | Cash at planning | Agent's decision |
+|---|---|---|
+| 0 | $5,000 | PAY Fresh Farms + Prime Foods · DEFER PackRight · VERIFY CleanPro |
+| 1 | $1,250 | DEFER PackRight — still unaffordable |
+| 2 | $1,500 | **PAY PackRight** — the day it fits |
+
+The bounded schedule oracle independently chooses day 2. The frozen fixture is untouched: it stays SHA-256 pinned and loads through `load_locked_scenario`, while the cash-flow variant loads through the generic `load_scenario`.
+
+Governance is demonstrable rather than only tested. **REJECT** records a decision and provably changes no state—the badge asserts `ProcureGym.step was never called` and the state version is unchanged. **MODIFY** mints a new batch ID and must clear the verifier again: promoting PackRight to PAY on day 1 returns `BLOCKED · OVER_BUDGET`, and promoting CleanPro returns `BLOCKED · UNRESOLVED_BUSINESS_CONTEXT`.
 
 This supports **working-capital discipline** by putting cash, supplier obligations, due dates, operational inventory runway, and proof status in one view. It is not a full net-working-capital calculation. Formal net working capital requires all current assets minus all current liabilities; Accounts Receivable, balance-sheet inventory valuation, and other current assets and liabilities are outside this demo.
 
@@ -175,6 +192,9 @@ Keep that terminal open. The printed `trycloudflare.com` URL is public and unaut
 ### Recording fixtures
 
 - [`fresh_farms_invoice.png`](data/procureagent/assets/fresh_farms_invoice.png)
+- [`prime_foods_invoice.png`](data/procureagent/assets/prime_foods_invoice.png)
+- [`packright_invoice.png`](data/procureagent/assets/packright_invoice.png)
+- [`cleanpro_invoice.png`](data/procureagent/assets/cleanpro_invoice.png)
 - [`fresh_farms_payment_receipt.png`](data/procureagent/assets/fresh_farms_payment_receipt.png)
 - [`receipt_provenance.json`](data/procureagent/assets/receipt_provenance.json)
 - [`model_smoke_v1.json`](data/procureagent/eval/model_smoke_v1.json)
@@ -200,7 +220,7 @@ HF_HUB_DISABLE_PROGRESS_BARS=1 \
   --output data/procureagent/eval/acceptance_live_v1.json
 ```
 
-Current evidence: **219 passed, 2 intentionally opt-in real-Tesseract smokes skipped** in the default run; the focused Tesseract/UI/reward run passes **49/49** with both smokes enabled. Offline acceptance is **9/9** and real-model acceptance is **10/10**. The safety harness blocks **6/6** action/governance attacks and **8/8** receipt ambiguity, mismatch, duplicate, and forgery attacks.
+Current evidence on this branch: **248 passed, 2 intentionally opt-in real-Tesseract smokes skipped** in the default run, and **250 passed with zero skips** when those smokes are enabled with `RUN_TESSERACT_SMOKE=1`. Offline acceptance is **9/9** and real-model acceptance is **10/10**. The safety harness blocks **6/6** action/governance attacks and **8/8** receipt ambiguity, mismatch, duplicate, and forgery attacks.
 
 One real-checkpoint smoke:
 
@@ -208,6 +228,8 @@ One real-checkpoint smoke:
 HF_HUB_DISABLE_PROGRESS_BARS=1 \
   .venv-model/bin/python scripts/evaluate_layoutlm.py --sample X51005200931
 ```
+
+All four bundled invoices are verified against real Tesseract 5.5.3 to return exactly one correct anchored candidate; the record is in [`invoice_assets_ocr_v1.json`](data/procureagent/eval/invoice_assets_ocr_v1.json), which claims OCR plus the deterministic rule only and does **not** claim a document-gate or model result. Each invoice still needs its own human CONFIRM, because the frozen `0.80` confidence threshold routes them all to review—that is the safeguard working, not a defect.
 
 The project keeps missing predictions in the denominator, separates fixture replay from live execution, and never turns model confidence into a claimed probability of correctness.
 
