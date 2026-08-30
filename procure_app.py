@@ -1533,20 +1533,24 @@ def render_receipt_result(receipt: Any) -> Any:
         compact_targets=True,
     )
     gate = receipt.proof_gate
-    receipt_id_unused = "UNUSED_RECEIPT_ID" in gate.checks_passed
-    if parsed.receipt_id:
+    receipt_id_grounded = (
+        "PARSED_RECEIPT_BOUND_TO_OCR" in gate.checks_passed
+        and parsed.receipt_id is not None
+        and any(
+            item.field_name == "receipt_id" and item.value == parsed.receipt_id
+            for item in parsed.evidence
+        )
+    )
+    if receipt_id_grounded:
         stage_badge(
             "Receipt ID captured",
-            f"{parsed.receipt_id} · OCR-grounded · "
-            f"{'unused in this demo' if receipt_id_unused else 'duplicate/review required'}",
-            "ok" if receipt_id_unused else "stop",
+            f"{parsed.receipt_id} · grounded in the uploaded OCR evidence",
+            "ok",
         )
         primary = st.columns(3)
         primary[0].metric("Receipt ID", parsed.receipt_id)
         primary[1].metric("OCR tokens processed", str(len(receipt.ocr.words)))
-        primary[2].metric(
-            "ID check", "UNUSED" if receipt_id_unused else "REVIEW"
-        )
+        primary[2].metric("Grounding", "OCR MATCH")
     else:
         stage_badge("Receipt ID captured", "MISSING · manual review required", "stop")
     stage_badge(
@@ -1557,38 +1561,65 @@ def render_receipt_result(receipt: Any) -> Any:
     fields = {"Receipt ID": parsed.receipt_id, "Supplier": parsed.supplier_name, "Supplier ID": parsed.supplier_id,
               "Invoice": parsed.invoice_number, "Amount": format_minor(parsed.amount_minor) if parsed.amount_minor is not None else None,
               "Currency": parsed.currency, "Paid date": parsed.paid_date}
+    fields = {key: value if value is not None else "Not found" for key, value in fields.items()}
     field_rows = [{"Field": key, "Parsed value": value} for key, value in fields.items()]
+    missing_payment_fields = sum(
+        value is None
+        for value in (
+            parsed.supplier_id,
+            parsed.invoice_number,
+            parsed.amount_minor,
+            parsed.currency,
+            parsed.paid_date,
+        )
+    )
     if gate.closes_obligation:
         render_table(field_rows)
     else:
         with st.expander("Manual matching details · why this ID cannot close AP yet"):
             render_table(field_rows)
             st.caption(
-                "A receipt ID can identify and deduplicate the uploaded document, but it "
-                "does not by itself prove which supplier invoice or payment amount it belongs to."
+                "A receipt ID identifies the uploaded document, but it does not by itself "
+                "prove which supplier invoice or payment amount it belongs to."
             )
-    detail = gate.status.value + (" · " + " · ".join(gate.reason_codes) if gate.reason_codes else "")
+            st.caption(
+                "Technical reason codes: "
+                + (" · ".join(gate.reason_codes) if gate.reason_codes else "none")
+            )
+    detail = (
+        gate.status.value
+        if gate.closes_obligation
+        else (
+            f"Payment proof incomplete · {missing_payment_fields} required fields missing"
+            if missing_payment_fields
+            else "Payment proof incomplete · exact fields do not match"
+        )
+    )
     stage_badge("Exact payment-proof check", detail, "ok" if gate.closes_obligation else "review")
     st.caption("Checks passed: " + (" · ".join(gate.checks_passed) or "none"))
     st.caption(f"Source: {receipt.source.value} · provenance: {receipt.provenance}")
     if gate.closes_obligation:
         st.success(
-            "The supplier, invoice number, amount, currency and receipt ID all pass. "
+            "The receipt ID, supplier, invoice number, full amount, currency, and paid date all pass. "
             "Accounts Payable stays SIMULATED_PAYMENT_APPROVED until your separate confirmation."
         )
     else:
-        if parsed.receipt_id:
+        if receipt_id_grounded:
             st.warning(
-                f"Receipt ID {parsed.receipt_id} was captured, but payment proof remains "
-                "pending. The lifecycle stays SIMULATED_PAYMENT_APPROVED; no second cash "
-                "entry or PAID_CONFIRMED status was created."
+                f"Receipt ID {parsed.receipt_id} was captured from OCR. Supplier, invoice "
+                "number, full amount, currency, and paid date are still required, so this "
+                "is not payment proof. Accounts Payable remains SIMULATED_PAYMENT_APPROVED; "
+                "no second cash entry or PAID_CONFIRMED status was created."
             )
         else:
             st.error(
                 "No grounded receipt ID was captured. Payment proof remains pending and "
                 "the lifecycle stays SIMULATED_PAYMENT_APPROVED."
             )
-    return render_reward_signal(gate)
+    reward = render_reward_signal(gate)
+    if not gate.closes_obligation:
+        st.caption("Receipt-ID capture alone receives SAFE_REVIEW · reward -1.0, never the +10 full-match reward.")
+    return reward
 
 
 def render_recording_kit() -> None:
@@ -1820,14 +1851,22 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
                 "Neither LayoutLMv3 nor the anchored rule found an invoice number. "
                 "Enter a checked correction or reject the document."
             )
-        st.caption("No choice is preselected. Confirm, correct, or reject what the model displayed.")
+        available_decisions = dict(REVIEW_DECISIONS)
+        if selected_model is None:
+            available_decisions.pop("Confirm the displayed invoice number")
+            st.caption(
+                "Confirm is unavailable because LayoutLMv3 found no candidate. "
+                "Correct the invoice number after checking the image, or reject the document."
+            )
+        else:
+            st.caption("No choice is preselected. Confirm, correct, or reject what the model displayed.")
         review_choice = st.radio(
             "Document review decision",
-            tuple(REVIEW_DECISIONS),
+            tuple(available_decisions),
             index=None,
             key="eval-document-review-choice",
         )
-        review_decision = REVIEW_DECISIONS.get(review_choice)
+        review_decision = available_decisions.get(review_choice)
         correction = st.text_input(
             "Correct invoice number",
             value="",
@@ -1852,11 +1891,6 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
             or (review_decision == "CORRECT" and bool(correction.strip()))
             or (review_decision == "CONFIRM" and selected_model is not None)
         )
-        if review_decision == "CONFIRM" and selected_model is None:
-            st.warning(
-                "Confirm is unavailable because no LayoutLMv3 candidate was displayed. "
-                "Choose Correct or Reject."
-            )
         if st.button(
             "Record my invoice decision",
             key="eval-record-human-review",
@@ -1995,13 +2029,17 @@ def render_step_match_receipt(simulation: Any) -> None:
     confirmed = st.session_state.get("eval-confirmed-payment")
     receipt = st.session_state.get("eval-receipt-analysis")
     status = "Complete" if confirmed is not None else (
-        "Proof ready" if receipt is not None and receipt.proof_gate.closes_obligation else "Receipt required"
+        "Proof ready" if receipt is not None and receipt.proof_gate.closes_obligation else (
+            "Receipt ID captured · proof incomplete"
+            if receipt is not None and receipt.parsed.receipt_id is not None
+            else "Receipt required"
+        )
     )
     with st.container(border=True):
         render_step_header(
             4,
             "Match the payment receipt",
-            "Scan the proof, compare its invoice number and amount, then close this one synthetic payable.",
+            "A receipt can confirm the simulated payment only when its receipt ID, supplier, invoice number, full amount, currency, and paid date all match.",
             status,
         )
         render_simulation(simulation)
@@ -2100,7 +2138,7 @@ def render_step_match_receipt(simulation: Any) -> None:
 
         receipt = st.session_state.get("eval-receipt-analysis")
         if receipt is None:
-            stage_badge("Receipt proof", "NOT RUN · Accounts Payable remains open", "review")
+            stage_badge("Receipt proof", "NOT RUN · scan a receipt to continue", "review")
         else:
             render_receipt_result(receipt)
 
@@ -2111,6 +2149,7 @@ def render_step_match_receipt(simulation: Any) -> None:
             key="eval-proof-confirmation",
             disabled=not proof_ready or confirmed is not None,
         )
+        st.caption("Confirmation is unavailable until all six receipt fields match and the receipt ID is unused by a confirmed proof.")
         confirm_payment = st.button(
             "Confirm match and close Accounts Payable",
             key="eval-confirm-payment",

@@ -287,13 +287,13 @@ def test_rule_only_suggestion_cannot_be_confirmed_as_model_output() -> None:
         model_adapter=NoCandidateModel(),
     )
     review = boot_with_flow(**{"eval-document-analysis": analysis})
-    review.radio(key="eval-document-review-choice").set_value(
-        "Confirm the displayed invoice number"
-    ).run()
 
     assert not review.exception
+    options = list(review.radio(key="eval-document-review-choice").options)
+    assert options == ["Correct the invoice number", "Reject this document"]
+    assert "Confirm the displayed invoice number" not in options
     assert review.button(key="eval-record-human-review").disabled
-    assert "Confirm is unavailable because no LayoutLMv3 candidate was displayed" in page_text(review)
+    assert "Confirm is unavailable because LayoutLMv3 found no candidate" in page_text(review)
     assert "use **Correct**" in page_text(review)
 
 
@@ -337,15 +337,17 @@ def test_receipt_id_only_view_is_clean_and_cannot_false_close_ap() -> None:
     assert not proof.exception
     text = page_text(proof)
     assert "Receipt ID captured" in text
-    assert "19729058 · OCR-grounded · unused in this demo" in text
+    assert "19729058 · grounded in the uploaded OCR evidence" in text
     assert "Manual matching details · why this ID cannot close AP yet" in [
         item.label for item in proof.expander
     ]
-    assert "payment proof remains pending" in text
+    assert "Payment proof incomplete · 5 required fields missing" in text
     assert "SIMULATED_PAYMENT_APPROVED" in text
-    assert "PAID_CONFIRMED status was created" in text
+    assert "no second cash entry or PAID_CONFIRMED status was created" in text
+    assert "SAFE_REVIEW · reward -1.0" in text
+    assert "VERIFIED_FULL_MATCH · reward 10.0" not in text
     assert metric_values(proof, "Receipt ID") == ["19729058"]
-    assert metric_values(proof, "ID check") == ["UNUSED"]
+    assert metric_values(proof, "Grounding") == ["OCR MATCH"]
     assert proof.button(key="eval-confirm-payment").disabled
     assert "pa-token muted" in text
     assert "pa-token target receipt-id" in text

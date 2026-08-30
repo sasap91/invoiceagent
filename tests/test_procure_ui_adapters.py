@@ -22,6 +22,7 @@ from procureagent.document import (
     RyanInvoiceAdapter,
 )
 from procureagent.ocr import OcrResult, OcrStatus, OcrWord, PixelBox
+from procureagent.receipt_reward import ReceiptMatchAction, score_receipt_match
 from procureagent.ui_adapters import (
     UiFlowError,
     _reset_cached_ryan_adapter_for_tests,
@@ -309,6 +310,9 @@ def test_receipt_id_only_is_captured_but_cannot_close_accounts_payable():
     assert "MISSING_SUPPLIER" in receipt.proof_gate.reason_codes
     assert "MISSING_INVOICE_NUMBER" in receipt.proof_gate.reason_codes
     assert "MISSING_AMOUNT_MINOR" in receipt.proof_gate.reason_codes
+    assert "MISSING_CURRENCY" in receipt.proof_gate.reason_codes
+    assert "MISSING_PAID_DATE" in receipt.proof_gate.reason_codes
+    assert receipt.proof_gate.proof is None
     assert not receipt.proof_gate.closes_obligation
     assert simulation.environment.state.cash_minor == 100_000
     assert simulation.environment.state.invoices[0].payment_status is (
@@ -316,6 +320,11 @@ def test_receipt_id_only_is_captured_but_cannot_close_accounts_payable():
     )
     with pytest.raises(UiFlowError, match="verified full payment proof"):
         confirm_verified_payment(receipt)
+    reward = score_receipt_match(
+        receipt.proof_gate, ReceiptMatchAction.REQUEST_REVIEW
+    )
+    assert reward.outcome == "SAFE_REVIEW"
+    assert reward.reward == Decimal("-1.0")
 
 
 def test_failed_ocr_does_not_initialize_the_lazy_model():
