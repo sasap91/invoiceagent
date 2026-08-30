@@ -34,6 +34,7 @@ from demo.procure_scenarios import (  # noqa: E402
     UNKNOWNCO_ADVERSARIAL,
     format_minor,
 )
+from invoiceagent.extraction import NOT_EVALUATED_LABEL  # noqa: E402
 from procureagent.contracts import (  # noqa: E402
     DocumentReviewDecision,
     PaymentProofSource,
@@ -856,11 +857,16 @@ def render_ocr_result(
 
 
 def _is_entity_label(label: str) -> bool:
-    return label not in ("O", "LABEL_0")
+    return label not in ("O", "LABEL_0", NOT_EVALUATED_LABEL)
 
 
 def render_annotated_invoice_image(image_bytes: bytes, words: tuple, token_predictions: tuple) -> None:
-    """Draw the model's per-word boxes on the invoice image: red = predicted entity, blue = background."""
+    """Draw the model's per-word boxes on the invoice image: red = predicted entity, blue = background, gray = not evaluated.
+
+    Matches every OCR word to its prediction by explicit ``TokenPrediction.index``,
+    not by position — a malformed or reordered prediction sequence is skipped
+    rather than coloring the wrong word's box.
+    """
 
     try:
         from io import BytesIO
@@ -873,20 +879,44 @@ def render_annotated_invoice_image(image_bytes: bytes, words: tuple, token_predi
     except Exception as exc:
         st.warning(f"Could not open the invoice image for annotation: {exc}")
         return
+
+    predictions_by_index: dict[int, Any] = {}
+    for token in token_predictions:
+        if token.index in predictions_by_index:
+            st.error("Model token predictions contain a duplicate OCR index; refusing to draw boxes.")
+            return
+        predictions_by_index[token.index] = token
+
     draw = ImageDraw.Draw(image)
-    for word, token in zip(words, token_predictions):
-        entity = _is_entity_label(token.label)
+    skipped = 0
+    for word in words:
+        token = predictions_by_index.get(word.sequence)
+        expected_box = (
+            word.normalized_box.x0,
+            word.normalized_box.y0,
+            word.normalized_box.x1,
+            word.normalized_box.y1,
+        )
+        if token is None or token.word != word.text or token.box != expected_box:
+            skipped += 1
+            continue
         box = word.pixel_box
-        draw.rectangle(
-            [box.x0, box.y0, box.x1, box.y1],
-            outline="red" if entity else "deepskyblue",
-            width=4 if entity else 1,
+        if not token.evaluated:
+            color, width = "gray", 1
+        elif _is_entity_label(token.label):
+            color, width = "red", 4
+        else:
+            color, width = "deepskyblue", 1
+        draw.rectangle([box.x0, box.y0, box.x1, box.y1], outline=color, width=width)
+    if skipped:
+        st.warning(
+            f"{skipped} OCR word(s) had no matching or misaligned model prediction and were not boxed."
         )
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     render_responsive_image(
         buffer.getvalue(),
-        caption="Model bounding boxes · red = predicted entity token, blue = background",
+        caption="Model bounding boxes · red = predicted entity, blue = background, gray = not evaluated (truncated input)",
     )
 
 
@@ -938,12 +968,19 @@ def render_document_analysis(analysis: Any) -> None:
         render_annotated_invoice_image(analysis.image.image_bytes, analysis.ocr.words, run.token_predictions)
         with st.expander("LayoutLMv3 model · every word's raw label and confidence", expanded=True):
             render_table(
-                [{"#": index, "word": token.word, "label": token.label,
+                [{"#": token.index, "word": token.word, "label": token.label,
                   "confidence": str(token.confidence), "margin": str(token.margin),
                   "box": f"({token.box[0]},{token.box[1]},{token.box[2]},{token.box[3]})"}
-                 for index, token in enumerate(run.token_predictions)],
+                 for token in run.token_predictions],
                 highlight=lambda row: _is_entity_label(row["label"]),
             )
+            not_evaluated = sum(1 for token in run.token_predictions if not token.evaluated)
+            if not_evaluated:
+                st.caption(
+                    f"{not_evaluated} word(s) were never scored by the model — the input was longer "
+                    "than the model's token limit, so tokenizer truncation cut it off before reaching "
+                    "them. They are labeled `NOT_EVALUATED_TRUNCATED`, not a real background prediction."
+                )
     gate = analysis.gate
     detail = gate.status.value + (" · " + " · ".join(gate.reason_codes) if gate.reason_codes else "")
     stage_badge("Safety gate", detail, "ok" if gate.may_activate_lookup else "review")

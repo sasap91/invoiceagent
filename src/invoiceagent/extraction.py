@@ -37,6 +37,12 @@ DEFAULT_BASE_REVISION = os.environ.get(
     "INVOICEAGENT_BASE_REVISION", "cfbbbff0762e6aab37086fdd4739ad14fe7d5db4"
 ) or None
 
+NOT_EVALUATED_LABEL = "NOT_EVALUATED_TRUNCATED"
+"""Sentinel label for an OCR word the model never scored (typically because
+tokenizer truncation cut the sequence short before reaching it). Distinct
+from a real background prediction, which means the model saw the word and
+judged it not to be part of the entity."""
+
 _DATE_LIKE = re.compile(r"^(?:\d{1,4}[-/.]){2}\d{1,4}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/#:-]{2,127}$")
 _RULE_PATTERNS = (
@@ -295,13 +301,102 @@ def decode_bio_spans(
 
 @dataclass(frozen=True, slots=True)
 class TokenPrediction:
-    """One word's raw model output, kept even when it is not part of any span."""
+    """One word's raw model output, kept even when it is not part of any span.
 
+    ``index`` is the word's explicit position in the source OCR word list.
+    Callers that render these (tables, annotated images) must match on
+    ``index``, never on tuple position alone, so a malformed or reordered
+    sequence cannot silently color the wrong word.
+    """
+
+    index: int
     word: str
     box: tuple[int, int, int, int]
     label: str
     confidence: Decimal
     margin: Decimal
+
+    def __post_init__(self) -> None:
+        if isinstance(self.index, bool) or not isinstance(self.index, int) or self.index < 0:
+            raise ValidationError("token prediction index must be a non-negative integer")
+        if not isinstance(self.word, str) or not self.word:
+            raise ValidationError("token prediction word must be non-empty text")
+        object.__setattr__(self, "box", _box(self.box, self.index))
+        if not isinstance(self.label, str) or not self.label:
+            raise ValidationError("token prediction label must be non-empty text")
+        object.__setattr__(
+            self, "confidence", _probability(self.confidence, "token prediction confidence")
+        )
+        object.__setattr__(self, "margin", _probability(self.margin, "token prediction margin"))
+
+    @property
+    def evaluated(self) -> bool:
+        """False when the model never scored this word (e.g. truncated input)."""
+
+        return self.label != NOT_EVALUATED_LABEL
+
+
+def assemble_token_predictions(
+    words: Sequence[str],
+    boxes: Sequence[Sequence[int]],
+    per_word: dict[int, tuple[str, Decimal, Decimal]],
+) -> tuple[TokenPrediction, ...]:
+    """Build one index-aligned ``TokenPrediction`` per OCR word.
+
+    Any word index missing from ``per_word`` was never scored by the model —
+    typically because tokenizer truncation cut the sequence short before
+    reaching it — and is recorded as ``NOT_EVALUATED_LABEL`` rather than a
+    fabricated background prediction, so truncated input never renders as
+    invented model evidence.
+    """
+
+    if len(words) != len(boxes):
+        raise ValidationError("words and boxes must be the same length")
+    predictions = []
+    for index, word in enumerate(words):
+        label, confidence, margin = per_word.get(
+            index, (NOT_EVALUATED_LABEL, Decimal("0"), Decimal("0"))
+        )
+        predictions.append(
+            TokenPrediction(
+                index=index,
+                word=word,
+                box=tuple(boxes[index]),
+                label=label,
+                confidence=confidence,
+                margin=margin,
+            )
+        )
+    return tuple(predictions)
+
+
+def validate_token_prediction_alignment(
+    token_predictions: Sequence[TokenPrediction],
+    words: Sequence[str],
+    boxes: Sequence[Sequence[int]],
+) -> None:
+    """Raise unless ``token_predictions`` is index-aligned 1:1 with ``words``/``boxes``.
+
+    Rendering code (tables, annotated images) should call this, or match on
+    ``TokenPrediction.index`` directly, before trusting positional order —
+    a malformed or reordered sequence would otherwise color the wrong boxes.
+    """
+
+    if len(token_predictions) != len(words) or len(words) != len(boxes):
+        raise ValidationError("token predictions, words, and boxes must have equal length")
+    for expected_index, (prediction, word, box) in enumerate(zip(token_predictions, words, boxes)):
+        if prediction.index != expected_index:
+            raise ValidationError(
+                f"token prediction at position {expected_index} has index {prediction.index}"
+            )
+        if prediction.word != word:
+            raise ValidationError(
+                f"token prediction at position {expected_index} word does not match the OCR word"
+            )
+        if prediction.box != tuple(box):
+            raise ValidationError(
+                f"token prediction at position {expected_index} box does not match the OCR box"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -491,28 +586,17 @@ class LayoutLMv3InvoiceExtractor:
             runner_up = Decimal(str(float(top_values[token_index, 1].detach().cpu().item())))
             per_word[word_index] = (label, confidence, confidence - runner_up)
 
-        labels: list[str] = []
-        confidences: list[Decimal] = []
-        margins: list[Decimal] = []
-        for word_index in range(len(ocr.words)):
-            label, confidence, margin = per_word.get(
-                word_index, ("O", Decimal("0"), Decimal("0"))
-            )
-            labels.append(label)
-            confidences.append(confidence)
-            margins.append(max(margin, Decimal("0")))
+        per_word = {
+            word_index: (label, confidence, max(margin, Decimal("0")))
+            for word_index, (label, confidence, margin) in per_word.items()
+        }
+        token_predictions = assemble_token_predictions(ocr.words, ocr.boxes, per_word)
+        validate_token_prediction_alignment(token_predictions, ocr.words, ocr.boxes)
+        labels = [prediction.label for prediction in token_predictions]
+        confidences = [prediction.confidence for prediction in token_predictions]
+        margins = [prediction.margin for prediction in token_predictions]
 
         spans = decode_bio_spans(ocr.words, ocr.boxes, labels, confidences, margins)
-        token_predictions = tuple(
-            TokenPrediction(
-                word=word,
-                box=tuple(ocr.boxes[index]),
-                label=labels[index],
-                confidence=confidences[index],
-                margin=margins[index],
-            )
-            for index, word in enumerate(ocr.words)
-        )
         latency = Decimal(str((perf_counter() - started) * 1000)).quantize(Decimal("0.1"))
         return InvoiceNumberResult(
             spans=spans,

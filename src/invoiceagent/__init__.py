@@ -28,15 +28,18 @@ from .core import (
 from .extraction import (
     DEFAULT_ADAPTER_MODEL,
     DEFAULT_BASE_MODEL,
+    NOT_EVALUATED_LABEL,
     EntitySpan,
     InvoiceNumberResult,
     LayoutLMv3InvoiceExtractor,
     OcrDocument,
     TokenPrediction,
+    assemble_token_predictions,
     decode_bio_spans,
     extract_anchored_identifier,
     is_valid_invoice_identifier,
     normalize_pixel_boxes,
+    validate_token_prediction_alignment,
 )
 
 __all__ = [
@@ -65,13 +68,16 @@ __all__ = [
     "summarize_cash_flow",
     "DEFAULT_ADAPTER_MODEL",
     "DEFAULT_BASE_MODEL",
+    "NOT_EVALUATED_LABEL",
     "EntitySpan",
     "InvoiceNumberResult",
     "LayoutLMv3InvoiceExtractor",
     "OcrDocument",
     "TokenPrediction",
+    "assemble_token_predictions",
     "decode_bio_spans",
     "extract_anchored_identifier",
     "is_valid_invoice_identifier",
     "normalize_pixel_boxes",
+    "validate_token_prediction_alignment",
 ]
