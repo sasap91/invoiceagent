@@ -42,6 +42,9 @@ def values(elements) -> str:
     return "\n".join(str(element.value) for element in elements)
 
 
+STEP_META_FOR_TESTS = (1, 2, 3, 4, 5)
+
+
 def page_text(app: AppTest) -> str:
     return values(
         [
@@ -517,3 +520,17 @@ def test_step_five_offers_the_revenue_week_because_the_locked_one_is_decided() -
     assert episode.environment.scenario.scenario_id == "restaurant_cashflow_v1"
     assert episode.environment.scenario.daily_cash_inflow_minor == 25_000
     assert "Payment timing · operator versus bounded oracle" in page_text(week)
+
+
+def test_step_headers_count_every_step_that_exists() -> None:
+    """A hardcoded total silently lies the moment a step is added."""
+
+    import re
+
+    app_text = (Path(__file__).resolve().parents[1] / "procure_app.py").read_text()
+    assert "Step {number} of 4" not in app_text, "step total must derive from STEP_META"
+
+    week = boot_with_flow(**_flow_through_receipt())
+    text = values(week.markdown)
+    assert f"Step 5 of {len(STEP_META_FOR_TESTS)}" in text
+    assert "Step 5 of 4" not in text
