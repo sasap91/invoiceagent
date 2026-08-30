@@ -590,8 +590,12 @@ def stage_badge(label: str, detail: str, tone: str = "pending") -> None:
     )
 
 
-def render_table(rows: list[dict[str, Any]]) -> None:
-    """Render small audit tables without a pandas/Arrow runtime dependency."""
+def render_table(rows: list[dict[str, Any]], *, highlight: Any = None) -> None:
+    """Render small audit tables without a pandas/Arrow runtime dependency.
+
+    ``highlight`` is an optional ``row -> bool`` predicate; matching rows get
+    a visible highlight class so entity predictions stand out from background.
+    """
 
     if not rows:
         st.caption("No rows")
@@ -599,10 +603,12 @@ def render_table(rows: list[dict[str, Any]]) -> None:
     headers = list(rows[0])
     heading = "".join(f"<th>{esc(item)}</th>" for item in headers)
     body = "".join(
-        "<tr>" + "".join(f"<td>{esc(row.get(item, ''))}</td>" for item in headers) + "</tr>"
+        f'<tr class="{"pa-row-highlight" if highlight and highlight(row) else ""}">'
+        + "".join(f"<td>{esc(row.get(item, ''))}</td>" for item in headers) + "</tr>"
         for row in rows
     )
     st.markdown(
+        '<style>.pa-row-highlight{background:#fff3b0!important;font-weight:600;}</style>'
         f'<div class="pa-table-wrap"><table class="pa-table"><thead><tr>{heading}</tr></thead><tbody>{body}</tbody></table></div>',
         unsafe_allow_html=True,
     )
@@ -838,6 +844,41 @@ def render_ocr_result(
         st.code(ocr.raw_text or "<no OCR text>")
 
 
+def _is_entity_label(label: str) -> bool:
+    return label not in ("O", "LABEL_0")
+
+
+def render_annotated_invoice_image(image_bytes: bytes, words: tuple, token_predictions: tuple) -> None:
+    """Draw the model's per-word boxes on the invoice image: red = predicted entity, blue = background."""
+
+    try:
+        from io import BytesIO
+        from PIL import Image, ImageDraw
+    except ImportError:
+        st.warning("Pillow is not installed; cannot draw model bounding boxes on the image.")
+        return
+    try:
+        image = Image.open(BytesIO(image_bytes)).convert("RGB")
+    except Exception as exc:
+        st.warning(f"Could not open the invoice image for annotation: {exc}")
+        return
+    draw = ImageDraw.Draw(image)
+    for word, token in zip(words, token_predictions):
+        entity = _is_entity_label(token.label)
+        box = word.pixel_box
+        draw.rectangle(
+            [box.x0, box.y0, box.x1, box.y1],
+            outline="red" if entity else "deepskyblue",
+            width=4 if entity else 1,
+        )
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    render_responsive_image(
+        buffer.getvalue(),
+        caption="Model bounding boxes · red = predicted entity token, blue = background",
+    )
+
+
 def render_document_analysis(analysis: Any) -> None:
     stage_badge(
         "Image read",
@@ -882,6 +923,16 @@ def render_document_analysis(analysis: Any) -> None:
             f"{run.latency_ms} ms. Confidence is not accuracy. The fixture answer key is used "
             "only after inference and was not provided to OCR or the model."
         )
+    if run.token_predictions:
+        render_annotated_invoice_image(analysis.image.image_bytes, analysis.ocr.words, run.token_predictions)
+        with st.expander("Ryan model · every word's raw label and confidence", expanded=True):
+            render_table(
+                [{"#": index, "word": token.word, "label": token.label,
+                  "confidence": str(token.confidence), "margin": str(token.margin),
+                  "box": f"({token.box[0]},{token.box[1]},{token.box[2]},{token.box[3]})"}
+                 for index, token in enumerate(run.token_predictions)],
+                highlight=lambda row: _is_entity_label(row["label"]),
+            )
     gate = analysis.gate
     detail = gate.status.value + (" · " + " · ".join(gate.reason_codes) if gate.reason_codes else "")
     stage_badge("Safety gate", detail, "ok" if gate.may_activate_lookup else "review")

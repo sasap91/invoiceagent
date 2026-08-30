@@ -13,6 +13,7 @@ from typing import Any, Callable, Iterable
 from invoiceagent.extraction import (
     LayoutLMv3InvoiceExtractor,
     OcrDocument as RyanOcrDocument,
+    TokenPrediction,
     is_valid_invoice_identifier,
 )
 from invoiceagent.core import normalize_identifier
@@ -183,6 +184,7 @@ class InvoiceModelRun:
     latency_ms: Decimal
     error_code: str | None = None
     error_message: str | None = None
+    token_predictions: tuple[TokenPrediction, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.document_id, str) or not self.document_id.startswith("doc_"):
@@ -193,6 +195,10 @@ class InvoiceModelRun:
         if not all(isinstance(item, ModelInvoiceCandidate) for item in candidates):
             raise ContractValidationError("model candidates are invalid")
         object.__setattr__(self, "candidates", candidates)
+        token_predictions = tuple(self.token_predictions)
+        if not all(isinstance(item, TokenPrediction) for item in token_predictions):
+            raise ContractValidationError("token predictions are invalid")
+        object.__setattr__(self, "token_predictions", token_predictions)
         if not isinstance(self.model_version, str) or not self.model_version.strip():
             raise ContractValidationError("model_version is required")
         if not isinstance(self.latency_ms, Decimal) or self.latency_ms < 0:
@@ -390,6 +396,7 @@ class RyanInvoiceAdapter:
             candidates=tuple(mapped),
             model_version=model_version,
             latency_ms=result.latency_ms,
+            token_predictions=tuple(getattr(result, "token_predictions", ())),
         )
 
 

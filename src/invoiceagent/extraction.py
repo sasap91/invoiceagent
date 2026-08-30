@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+import os
 import re
 from time import perf_counter
 from typing import Any, Iterable, Sequence
@@ -25,10 +26,16 @@ from .core import (
 )
 
 
-DEFAULT_ADAPTER_MODEL = "ryanznie/layoutlmv3-lora-invoice-number"
-DEFAULT_BASE_MODEL = "microsoft/layoutlmv3-base"
-DEFAULT_ADAPTER_REVISION = "7dc28f5a3b14aa100ba432ee1b0a6cac6c7b2c5c"
-DEFAULT_BASE_REVISION = "cfbbbff0762e6aab37086fdd4739ad14fe7d5db4"
+DEFAULT_ADAPTER_MODEL = os.environ.get(
+    "INVOICEAGENT_ADAPTER_MODEL", "ryanznie/layoutlmv3-lora-invoice-number"
+)
+DEFAULT_BASE_MODEL = os.environ.get("INVOICEAGENT_BASE_MODEL", "microsoft/layoutlmv3-base")
+DEFAULT_ADAPTER_REVISION = os.environ.get(
+    "INVOICEAGENT_ADAPTER_REVISION", "7dc28f5a3b14aa100ba432ee1b0a6cac6c7b2c5c"
+) or None
+DEFAULT_BASE_REVISION = os.environ.get(
+    "INVOICEAGENT_BASE_REVISION", "cfbbbff0762e6aab37086fdd4739ad14fe7d5db4"
+) or None
 
 _DATE_LIKE = re.compile(r"^(?:\d{1,4}[-/.]){2}\d{1,4}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/#:-]{2,127}$")
@@ -287,12 +294,24 @@ def decode_bio_spans(
 
 
 @dataclass(frozen=True, slots=True)
+class TokenPrediction:
+    """One word's raw model output, kept even when it is not part of any span."""
+
+    word: str
+    box: tuple[int, int, int, int]
+    label: str
+    confidence: Decimal
+    margin: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class InvoiceNumberResult:
     """One model call, including every candidate span and its provenance."""
 
     spans: tuple[EntitySpan, ...]
     model_name: str
     latency_ms: Decimal
+    token_predictions: tuple[TokenPrediction, ...] = ()
 
     @property
     def selected(self) -> EntitySpan | None:
@@ -484,6 +503,16 @@ class LayoutLMv3InvoiceExtractor:
             margins.append(max(margin, Decimal("0")))
 
         spans = decode_bio_spans(ocr.words, ocr.boxes, labels, confidences, margins)
+        token_predictions = tuple(
+            TokenPrediction(
+                word=word,
+                box=tuple(ocr.boxes[index]),
+                label=labels[index],
+                confidence=confidences[index],
+                margin=margins[index],
+            )
+            for index, word in enumerate(ocr.words)
+        )
         latency = Decimal(str((perf_counter() - started) * 1000)).quantize(Decimal("0.1"))
         return InvoiceNumberResult(
             spans=spans,
@@ -492,4 +521,5 @@ class LayoutLMv3InvoiceExtractor:
                 f"(base {self.base_model}@{self.base_revision}) on {self.device}"
             ),
             latency_ms=latency,
+            token_predictions=token_predictions,
         )

@@ -72,7 +72,15 @@ python3.12 -m venv .venv-model
 ./scripts/run_demo.sh
 ```
 
-Open <http://127.0.0.1:8501> and follow the four-step guided demo: **Read invoice → Confirm & plan → Approve simulation → Verify receipt**. The first model load downloads the base model and adapter, so warm it once before presenting. Technical evidence is available in the expandable evidence panels without interrupting the main story.
+Open <http://127.0.0.1:8501> and follow the four-step guided demo: **Read invoice → Confirm & plan → Approve simulation → Verify receipt**. The first model load downloads the base model and adapter (`ryanznie/layoutlmv3-lora-invoice-number`) from Hugging Face, so warm it once before presenting. Technical evidence is available in the expandable evidence panels without interrupting the main story.
+
+If you have a local checkout of the adapter (e.g. from the `invoice-ner` training repo) and want to run against it instead of downloading from the Hub, point these env vars at it before launching Streamlit:
+
+```bash
+export INVOICEAGENT_ADAPTER_MODEL=/path/to/invoice-ner/models/layoutlmv3-lora-invoice-number
+export INVOICEAGENT_ADAPTER_REVISION=
+./scripts/run_demo.sh
+```
 
 To expose the running Mac through an ephemeral Cloudflare URL:
 
