@@ -2,14 +2,14 @@
 
 **One-line promise:** Help a restaurant decide which supplier invoices to pay now, defer, or verify when cash is limited.
 
-**Status:** Merged team-review draft; awaiting C0 contract freeze
+**Status:** Active build contract; Wilson is integrating the end-to-end reference implementation
 
 **Scope decision:** Sasa's restaurant procurement use case is the source of truth
 
 **Team:** Sasa, Ryan, David, Wilson, and Dillon
 
 **Environment:** ProcureGym
-**Primary workflow:** Supplier invoice → verified context → payment recommendation → operator decision → simulated consequence
+**Primary workflow:** Supplier invoice → verified context → payment recommendation → operator decision → simulated consequence → full-payment receipt proof → AP transaction complete
 
 > **Current implementation note:** The repository still contains an earlier InvoiceAgent AP/AR reconciliation prototype. That code is not proof that ProcureAgent is implemented. The task board below defines the pivot.
 
@@ -30,6 +30,7 @@ ProcureAgent helps the owner reason through that choice:
 7. Deterministic rules check that the recommendation is safe and valid.
 8. A human operator approves, modifies, or rejects it.
 9. ProcureGym shows what the approved choice would do to simulated cash, inventory, fees, and supplier status.
+10. For a simulated full payment, the operator uploads a payment receipt; deterministic receipt extraction and an exact proof gate match supplier, invoice, amount, and currency before the demo marks the Accounts Payable transaction complete.
 
 The model does not move money and does not run procurement by itself.
 
@@ -80,6 +81,7 @@ An independent restaurant owner or manager working with approximately five to te
 6. Implement a deterministic, seeded ProcureGym environment.
 7. Compare the same scenario against **Earliest Due First**.
 8. Fail closed when document identity, supplier context, or financial constraints are uncertain.
+9. Demonstrate the full Accounts Payable lifecycle with a full-payment receipt whose supplier, invoice, amount, and currency match exactly before the transaction is marked complete.
 
 ### P1 stretch goals
 
@@ -93,7 +95,7 @@ An independent restaurant owner or manager working with approximately five to te
 
 If at least one actual model run is captured with artifact and runtime metadata, a judge should be able to say:
 
-> I saw a small local model propose an invoice number, saw the evidence and human safeguard, watched a policy prioritize limited restaurant cash, and saw approved choices produce measurable simulated consequences.
+> I saw a small local model propose an invoice number, saw the evidence and human safeguard, watched a policy prioritize limited restaurant cash, and saw an exact receipt proof close the simulated Accounts Payable transaction.
 
 If only a replay is available, the presentation must instead say that it showed a recorded proposal and that no model ran during that interaction. A replay alone cannot support a live-model claim.
 
@@ -107,6 +109,8 @@ If only a replay is available, the presentation must instead say that it showed 
 - Approximately six synthetic suppliers
 - Four locked primary invoices, expandable to ten to fifteen fixtures
 - Supplier invoices and Accounts Payable only
+- One full-payment receipt-proof path for an approved simulated payment
+- One inspected synthetic receipt fixture plus user-uploaded receipt images, with generation provenance visible; use Fal when the account is available and a deterministic OCR-safe fallback otherwise
 - PNG/JPEG input plus live or visibly labeled precomputed OCR
 - Existing LayoutLMv3 invoice-number specialist
 - Composite supplier-and-invoice lookup
@@ -122,8 +126,8 @@ If only a replay is available, the presentation must instead say that it showed 
 ### Explicitly out of scope for P0
 
 - Accounts Receivable and customer invoices
-- Receipt matching or receipt-number extraction
 - Partial payments
+- General receipt-number extraction, arbitrary receipt reconciliation, or receipt learning
 - Real banking, payment, POS, ERP, or supplier integrations
 - Automatic financial authorization
 - Production authentication or compliance
@@ -134,7 +138,7 @@ If only a replay is available, the presentation must instead say that it showed 
 - Online exploration on real invoices
 - Training from implicit approval alone
 
-The earlier AP/AR receipt-reconciliation direction is future work, not an active hackathon requirement.
+P0 receipt proof is deliberately narrow: it closes one simulated **Accounts Payable** obligation only after an exact full-payment match. It does not revive the earlier Accounts Receivable product, infer partial allocations, or claim that Ryan's invoice-number model reads receipts.
 
 ---
 
@@ -152,8 +156,10 @@ The earlier AP/AR receipt-reconciliation direction is future work, not an active
 | **REJECT** | Operator rejects the proposal; no state changes |
 | **Looked up** | Loaded from immutable synthetic fixture data after document identity was confirmed |
 | **Extracted** | Produced from OCR, a deterministic parser, or a named model with evidence |
+| **Payment proof** | Receipt fields extracted by OCR plus deterministic rules and matched to one simulated AP obligation by supplier ID, invoice number, full amount, and currency |
+| **PAID_CONFIRMED** | Demo ledger status reached only after an approved simulated PAY and a verified full-payment proof; it does not mean a bank moved money |
 
-The UI must say **Simulated paid**, never imply that a bank payment occurred.
+The UI must say **Simulated paid** or **Receipt proof confirmed**, never imply that a bank payment occurred.
 
 ---
 
@@ -177,9 +183,14 @@ flowchart TD
     J --> K{Deterministic batch verifier}
     K --> L[Operator review]
     L -->|Modify| K
-    L -->|Approve reverified batch| M[ProcureGym step]
+    L -->|Approve reverified batch| M[ProcureGym step and simulated PAY]
     L -->|Reject or do not commit| N[No state change]
     M --> O[Next synthetic state and metrics]
+    M --> P[Upload full-payment receipt]
+    P --> Q[Receipt OCR and deterministic parser]
+    Q --> R{Exact payment-proof gate}
+    R -->|Supplier + invoice + amount + currency match| S[PAID_CONFIRMED in demo ledger]
+    R -->|Missing, ambiguous, or mismatched| T[Receipt review; AP remains open]
 ~~~
 
 ### Non-negotiable boundaries
@@ -190,6 +201,8 @@ flowchart TD
 - The recommendation is a proposal, not authorization.
 - The verifier can block an action regardless of model output or reward.
 - Only an explicit operator-approved and reverified daily batch can enter ProcureGym.
+- Ryan's model is used on the invoice-number path only. Receipt fields come from OCR plus a deterministic parser and must be labeled that way.
+- A receipt cannot close an AP obligation unless it matches the approved simulated full payment on the exact composite identity, amount, and currency.
 - ProcureGym never changes a real bank or accounting system.
 
 ---
@@ -413,6 +426,25 @@ Verifier results are **BLOCKED**, **REQUIRES_OPERATOR**, and **VERIFIED**. Opera
 
 All financial arithmetic uses integer minor units or Decimal. Binary floating point must not determine balances.
 
+### 8.6 Full-payment receipt proof
+
+~~~json
+{
+  "receipt_id": "receipt_fresh_farms_ff10482",
+  "supplier_id": "fresh_farms",
+  "invoice_number": "FF-10482",
+  "amount_minor": 150000,
+  "currency": "USD",
+  "paid_date": "2026-08-30",
+  "extraction_method": "ocr_plus_deterministic_rules",
+  "source": "synthetic_fixture_replay",
+  "status": "VERIFIED",
+  "matched_payment_status": "PAID_CONFIRMED"
+}
+~~~
+
+The receipt proof is valid only for a full simulated payment that was present in an approved, reverified batch. The gate requires one exact supplier-and-invoice composite match, the full approved amount, and matching currency. A missing, partial, duplicated, ambiguous, or mismatched proof routes to review and leaves the AP obligation open. `PAID_CONFIRMED` is a demo-ledger state, not evidence of a real bank transaction.
+
 ---
 
 ## 9. Core workflow
@@ -434,6 +466,11 @@ All financial arithmetic uses integer minor units or Decimal. Binary floating po
 15. ProcureGym atomically applies one reverified, approved daily batch and advances exactly one day.
 16. VERIFY items receive no direct payment; if the daily batch commits, they remain in review while global time advances.
 17. UI shows raw outcomes and reward beside the baseline.
+18. For a simulated PAY item, the operator uploads a full-payment receipt image or selects the visibly labeled synthetic fixture with its actual generation provenance.
+19. Receipt OCR returns raw text and tokens; deterministic anchored rules propose supplier, invoice number, amount, currency, paid date, and receipt ID where present.
+20. The payment-proof gate compares those fields with the approved simulated payment and canonical AP record.
+21. An exact, unambiguous full match moves the demo-ledger lifecycle from `SIMULATED_PAYMENT_APPROVED` to `PAID_CONFIRMED`.
+22. Any mismatch or incomplete evidence routes to receipt review; it never silently closes the obligation.
 
 ---
 
@@ -492,9 +529,19 @@ An unknown or unverified document still fails upstream and never becomes a VERIF
 - VERIFY makes no direct payment; it remains queued if the operator commits the rest of the daily batch.
 - UI controls are sandbox confirmation, not authenticated financial authorization.
 
+### Payment-proof gate
+
+- The AP record must already be `SIMULATED_PAYMENT_APPROVED` from the current approved batch.
+- Supplier ID plus invoice number must identify exactly one canonical obligation.
+- Receipt amount must equal the complete approved amount; P0 rejects partial or excess amounts.
+- Currency must match and the receipt evidence must be grounded in OCR text.
+- Duplicate receipt IDs or a receipt already consumed by another obligation are blocked.
+- Missing or ambiguous fields route to receipt review and leave the AP record open.
+- Ryan's LayoutLMv3 adapter is not credited with receipt extraction; the UI identifies OCR and deterministic rules as the active components.
+
 ### Audit log
 
-Record OCR/model evidence, document-gate result, synthetic record/version, recommendation/reasons, verifier checks, operator decision, and ProcureGym transition.
+Record invoice OCR/model evidence, document-gate result, synthetic record/version, recommendation/reasons, verifier checks, operator decision, ProcureGym transition, receipt OCR/rule evidence, proof-gate checks, and AP lifecycle transition.
 
 ---
 
@@ -585,11 +632,15 @@ Spanish or another language may appear only as a clearly labeled experiment. The
 | FR-13 | P0 | UI labels extracted, looked-up, recommended, verified, human-confirmed, and simulated data separately. |
 | FR-14 | P0 | Fixture/replay path is visibly distinguished from live OCR or model execution. |
 | FR-15 | P0 | Any statement that the model ran is backed by one actual recorded inference with artifact/version metadata; otherwise UI says replay and no model ran. |
-| FR-16 | P1 | Generate offline extraction action-outcome matrix with accuracy, latency, and review cost. |
-| FR-17 | P1 | Train constrained contextual-bandit router without using locked test split. |
-| FR-18 | P1 | Compare frozen bandit with calibrated threshold and always-review baselines. |
-| FR-19 | P1 | Add a named model-driven procurement policy and several seeded scenarios. |
-| FR-20 | P1 | Add separately reported non-English experiments without generalized claims. |
+| FR-16 | P0 | Eval UI accepts a payment-receipt image after an approved simulated PAY and shows OCR text, deterministic parsed fields, provenance, and proof checks. |
+| FR-17 | P0 | Payment-proof gate requires exact supplier, invoice, full amount, and currency match; ambiguous, duplicate, partial, excess, or mismatched proof leaves AP open. |
+| FR-18 | P0 | A verified proof moves only the matching demo-ledger obligation to `PAID_CONFIRMED` and is explicitly labeled as simulated rather than a bank transaction. |
+| FR-19 | P0 | Repository includes one inspected synthetic receipt fixture and metadata without exposing `FAL_KEY`; Fal status or deterministic fallback provenance is explicit. |
+| FR-20 | P1 | Generate offline extraction action-outcome matrix with accuracy, latency, and review cost. |
+| FR-21 | P1 | Train constrained contextual-bandit router without using locked test split. |
+| FR-22 | P1 | Compare frozen bandit with calibrated threshold and always-review baselines. |
+| FR-23 | P1 | Add a named model-driven procurement policy and several seeded scenarios. |
+| FR-24 | P1 | Add separately reported non-English experiments without generalized claims. |
 
 ---
 
@@ -610,6 +661,13 @@ Spanish or another language may appear only as a clearly labeled experiment. The
 - Unapproved mutations: target **zero**
 - Stale-state, duplicate, and negative-cash proposals blocked
 - Operator approve/modify/reject counts
+
+### AP lifecycle proof
+
+- Exact receipt-proof match rate and review rate
+- Partial, duplicate, wrong-invoice, wrong-supplier, wrong-amount, and wrong-currency proofs blocked
+- AP obligations closed without an approved simulated payment: target **zero**
+- AP obligations closed without verified full-payment proof: target **zero**
 
 ### Synthetic restaurant outcomes
 
@@ -650,6 +708,10 @@ PAY/DEFER/VERIFY proposal, explanation, reason codes, verifier checks, APPROVE/M
 
 Before/after state, cash and inventory movement, fees, supplier status, raw metrics, reward, baseline comparison, and audit timeline.
 
+### Eval Lab — invoice to completed AP transaction
+
+An interactive recording path accepts an invoice image, shows OCR tokens and Ryan-model invoice-number evidence, optionally compares it with an operator-supplied expected value for per-document exact match, explains why the supplier bill is Accounts Payable, runs the governed simulated recommendation, accepts a full-payment receipt image, shows receipt OCR and deterministic parsing, and marks the AP transaction complete only after the exact proof gate passes. Each step names its actual implementation, model/runtime, source file, status, and live-versus-fixture provenance.
+
 ---
 
 ## 16. Team member roster
@@ -662,7 +724,7 @@ Before/after state, cash and inventory movement, fees, supplier status, raw metr
 | **Wilson / @skylarwooster** | Owner: C0, C3, and C5; co-owner: C7 |
 | **Dillon** | Co-owner: C1, C2, C4, and C6 |
 
-These assignments were confirmed by Wilson on 30 August 2026. Multiple names indicate shared ownership; the co-owners must agree who signs off the category's done test.
+These assignments were confirmed by Wilson on 30 August 2026. Multiple names indicate shared ownership; the co-owners must agree who signs off the category's done test. To protect the hackathon deadline, Wilson is also implementing the integrated reference path across C0–C8. This does not erase category ownership: compatible teammate work is merged against the frozen contracts, and the listed owner or co-owners still review and sign off their category.
 
 ---
 
@@ -678,15 +740,15 @@ These assignments were confirmed by Wilson on 30 August 2026. Multiple names ind
 
 | Claim state | Category | Scope | Dependencies | Deliverable / done test | Owner / delivery |
 |---|---|---|---|---|---|
-| **CLAIMED** | **C0 — Pivot contract and locked fixtures** | Freeze schemas, enums, reasons, primary invoices, restaurant, lookup, and seed. Remove active AP/AR assumptions. | All component owners | One fixture validates end to end; no P0 contract requires AR, receipts, or partial payments. | **Wilson / @skylarwooster · IN PROGRESS** |
-| **CLAIMED** | **C1 — OCR and document ingestion** | Image intake, ID/hash, OCR words, boxes, raw text, metadata, fallback, and failure behavior. | Locked images and OCR schema | One command produces contract-valid OCR; missing OCR yields labeled replay or review, never invented identity. | **David / @cheezburgerz + Ryan Nie + Dillon · NOT VERIFIED** |
-| **CLAIMED** | **C2 — Local specialist, evidence, and document gate** | Package Ryan's adapter; return value, entity tokens/boxes/scores, latency, version, failures, and anchored-rule candidate; merge proposals and decide verified identity or document review. | C1; Ryan's artifact; license review | Another member runs correct, wrong, missing, ungrounded, ambiguous, and rule/model-disagreement fixtures outside a notebook; unsafe identity never reaches C3 and every failure remains in metrics. | **Ryan Nie + Dillon · NOT VERIFIED** |
-| **CLAIMED** | **C3 — Supplier lookup and restaurant state** | Composite lookup, synthetic invoices, exact cash, inventory, due dates, criticality, status, and versioning. | C0 contract; C2 verified identity for live integration | $5,000 cash and $6,200 obligations reproduce exactly; unknown IDs activate nothing. | **Wilson / @skylarwooster · IN PROGRESS** |
-| **CLAIMED** | **C4 — Recommendation, verifier, and governance** | Implement Criticality-Aware Greedy v1, daily batch schema, reasons, hard checks, operator controls, reverification, and audit events. | C3; document gate | Four-invoice batch is deterministic; unsafe, modified-unverified, unapproved, or stale batches cannot reach ProcureGym. | **Ryan Nie + Dillon · NOT VERIFIED** |
+| **CLAIMED** | **C0 — Pivot contract and locked fixtures** | Freeze schemas, enums, reasons, primary invoices, restaurant, lookup, seed, AP lifecycle, and exact full-payment proof. Keep AR and partial payments out. | All component owners | One invoice and receipt fixture validate end to end; no P0 contract requires AR or partial payments. | **Wilson / @skylarwooster · VERIFIED · 22 focused and 68 full-suite tests passed at freeze** |
+| **CLAIMED** | **C1 — OCR and document ingestion** | Invoice/receipt image intake, ID/hash, OCR words, boxes, raw text, metadata, fallback, and failure behavior. | Locked images and OCR schema | One command produces contract-valid OCR for both document types; missing OCR yields labeled replay or review, never invented identity. | **David / @cheezburgerz + Ryan Nie + Dillon · Wilson integration help · NOT VERIFIED** |
+| **CLAIMED** | **C2 — Local specialist, evidence, and document gate** | Package Ryan's invoice adapter; return value, entity tokens/boxes/scores, latency, version, failures, and anchored-rule candidate; merge invoice proposals and decide verified identity or document review. Receipt fields remain OCR-plus-rules. | C1; Ryan's artifact; license review | Another member runs correct, wrong, missing, ungrounded, ambiguous, and rule/model-disagreement fixtures outside a notebook; unsafe identity never reaches C3 and every failure remains in metrics. | **Ryan Nie + Dillon · Wilson integration help · NOT VERIFIED** |
+| **CLAIMED** | **C3 — Supplier lookup and restaurant state** | Composite lookup, synthetic invoices, exact cash, inventory, due dates, criticality, status, versioning, and AP lifecycle through verified receipt proof. | C0 contract; C2 verified identity for live integration | $5,000 cash and $6,200 obligations reproduce exactly; unknown IDs activate nothing; only exact full-payment proof closes an obligation. | **Wilson / @skylarwooster · IN PROGRESS** |
+| **CLAIMED** | **C4 — Recommendation, verifier, and governance** | Implement Criticality-Aware Greedy v1, daily batch schema, reasons, hard checks, operator controls, reverification, and audit events. | C3; document gate | Four-invoice batch is deterministic; unsafe, modified-unverified, unapproved, or stale batches cannot reach ProcureGym. | **Ryan Nie + Dillon · Wilson integration help · NOT VERIFIED** |
 | **CLAIMED** | **C5 — ProcureGym, reward, and baselines** | Seeded batch reset/step, transitions, horizon, raw metrics, reward, Earliest Due First, and fixed evaluation executor. | C0, C3, C4 approved-batch contract | Same state runs reproducibly under both P0 policies; only approved batches change state. | **Wilson / @skylarwooster · IN PROGRESS** |
-| **CLAIMED** | **C6 — Contextual-bandit Router Lab** | Action matrix, constrained reward, training/development split, frozen test, and fixed-gate comparison. | C1/C2 outputs; locked labels | Report learned router only if it beats declared baselines without more unsafe accepts; otherwise show negative result. | **David / @cheezburgerz + Ryan Nie + Dillon · NOT VERIFIED · P1** |
-| **CLAIMED** | **C7 — Demo UI, orchestration, and deployment** | Streamlit path, health/errors, live/replay labels, public URL, and offline backup. | Stable C0–C5 contracts | Clean-browser 2–3 minute demo works; public and offline paths pass rehearsal. | **Wilson / @skylarwooster + Sasa P · IN PROGRESS** |
-| **CLAIMED** | **C8 — Evaluation, QA, and presentation proof** | Locked evaluation, adversarial attacks, results card, runbook, talk track, and release checklist. | All P0 outputs | One command runs P0 acceptance; zero unapproved mutations; each public claim is reproducible or labeled planned. | **Sasa P · NOT VERIFIED** |
+| **CLAIMED** | **C6 — Contextual-bandit Router Lab** | Action matrix, constrained reward, training/development split, frozen test, and fixed-gate comparison. | C1/C2 outputs; locked labels | Report learned router only if it beats declared baselines without more unsafe accepts; otherwise show negative result. | **David / @cheezburgerz + Ryan Nie + Dillon · Wilson integration help · NOT VERIFIED · P1** |
+| **CLAIMED** | **C7 — Demo UI, orchestration, and deployment** | Interactive Eval Lab, visible tokens/model/provenance, AP explanation, invoice-to-receipt lifecycle, Streamlit path, health/errors, live/replay labels, public URL, and offline backup. | Stable C0–C5 contracts | Clean-browser 2–3 minute invoice→receipt demo works; public and offline paths pass rehearsal. | **Wilson / @skylarwooster + Sasa P · IN PROGRESS** |
+| **CLAIMED** | **C8 — Evaluation, QA, and presentation proof** | Locked evaluation, invoice and receipt adversarial attacks, results card, runbook, talk track, and release checklist. | All P0 outputs | One command runs P0 acceptance; zero unapproved or unproved lifecycle mutations; each public claim is reproducible or labeled planned. | **Sasa P · Wilson integration help · NOT VERIFIED** |
 
 ### Parallel-work rule
 
@@ -704,9 +766,12 @@ flowchart LR
     C2 --> C3[C3 restaurant state]
     C3 --> C4[C4 policy and verifier]
     C3 --> C5[C5 ProcureGym]
+    C1 --> R[Receipt OCR and proof gate]
+    C3 --> R
     C4 --> C5
     C2 --> I[Integrated vertical slice]
     C5 --> I
+    R --> I
     C7 --> I
     I --> C8[C8 independent QA]
     C1 --> C6[C6 Router Lab]
@@ -726,6 +791,7 @@ flowchart LR
 - Lookup returns one synthetic record.
 - One proposal passes verifier and operator gate.
 - One approved action advances ProcureGym.
+- One full-payment receipt passes OCR/rules and the exact proof gate, then closes only the matching demo AP obligation.
 
 ### Gate 2 — Policy comparison
 
@@ -737,6 +803,7 @@ flowchart LR
 ### Gate 3 — Safety proof
 
 - Confident wrong ID, unknown supplier, duplicate PAY, stale state, and over-budget batch are blocked.
+- Partial, duplicate, ambiguous, wrong-invoice, wrong-supplier, wrong-amount, and wrong-currency receipt proofs are blocked.
 
 ### Gate 4 — Demo freeze
 
@@ -755,9 +822,10 @@ flowchart LR
 4. **Show recommendation:** display PAY/DEFER/VERIFY, reasons, and exact state version.
 5. **Show human governance:** run verifier, then approve or change the proposal.
 6. **Show consequences:** advance ProcureGym and display raw outcomes plus reward.
-7. **Show baseline:** reset to the same seed and compare Earliest Due First.
-8. **Show both failure boundaries:** UnknownCo fails document identity before lookup; verified CleanPro receives procurement VERIFY for conflicting business context.
-9. **Close honestly:** the small document specialist can propose an identity cheaply; policy reasons over structured context; rules and a person govern; ProcureGym measures consequences before any real integration.
+7. **Close the AP loop:** upload the visibly labeled synthetic full-payment receipt, show receipt OCR and deterministic fields, run the exact proof checks, and visibly move Fresh Farms to `PAID_CONFIRMED`.
+8. **Show baseline:** reset to the same seed and compare Earliest Due First.
+9. **Show both failure boundaries:** UnknownCo fails document identity before lookup; verified CleanPro receives procurement VERIFY for conflicting business context; a mismatched receipt leaves AP open.
+10. **Close honestly:** the small document specialist proposes an invoice identity cheaply; receipt OCR plus rules verify proof; policy reasons over structured context; rules and a person govern; ProcureGym measures consequences before any real integration.
 
 ---
 
@@ -780,6 +848,9 @@ flowchart LR
 | AC-13 | Fixture/replay used | UI renders | It is visibly labeled; model-run claims are suppressed unless backed by recorded real inference |
 | AC-14 | Non-English experiment lacks results | Document arrives | It routes to review and no accuracy claim appears |
 | AC-15 | Full adversarial suite | QA runs | Zero unsafe or unapproved state mutations |
+| AC-16 | Approved simulated Fresh Farms PAY and exact full-payment receipt | Proof gate runs | Receipt evidence and all exact checks show; only Fresh Farms becomes `PAID_CONFIRMED` |
+| AC-17 | Receipt is partial, duplicated, ambiguous, wrong supplier, wrong invoice, wrong amount, or wrong currency | Proof gate runs | AP remains open and the reason is visible |
+| AC-18 | Eval Lab runs in a clean session | User uploads invoice then receipt | OCR/model/rule/provenance labels remain distinct and no real-payment claim appears |
 
 ---
 
@@ -800,15 +871,17 @@ flowchart LR
 | PAY sounds real | Audience may infer banking integration | Say Recommend PAY and Simulated paid |
 | Model licensing differs from code | MIT repo does not relicense weights | Verify base, adapter, and dataset terms separately |
 | Stretch RL destabilizes demo | Router work may consume integration time | Isolate C6; fixed gate remains P0 |
+| Receipt is mistaken for model output | Ryan's model does not read receipt fields | Label receipt OCR and deterministic rules at every step |
+| Synthetic receipt is mistaken for real payment | Demo could overclaim financial integration | Show its actual Fal or deterministic generation provenance and “simulation only”; never expose the API key |
 
 ---
 
 ## 22. Future work
 
-- Receipt reconciliation and Accounts Receivable
+- Accounts Receivable and general receipt reconciliation
 - Partial payments
 - Full amount/date/supplier document extraction
-- Receipt-number annotations
+- Learned receipt-number or receipt-field model and annotations
 - Calibrated multilingual evaluation
 - Contextual-bandit router after baselines
 - Procurement-policy learning inside ProcureGym
@@ -847,5 +920,7 @@ ProcureAgent P0 is complete only when:
 - Earliest Due First runs the same four-invoice batch from the same starting state under the fixed comparison protocol.
 - Raw metrics and reward reproduce.
 - UnknownCo activates no payable; CleanPro receives no direct payment while queued for review.
+- The inspected synthetic receipt fixture and a user-uploaded receipt can exercise the payment-proof gate without exposing credentials; generation provenance names the deterministic fallback until Fal balance is available.
+- Exact full-payment proof closes only the matching simulated AP obligation; every partial, duplicate, ambiguous, or mismatched proof leaves it open.
 - Public URL and offline fallback both work.
 - Every presentation claim is backed by an artifact or labeled future work.
