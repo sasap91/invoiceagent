@@ -51,6 +51,7 @@ from procureagent.ui_adapters import (  # noqa: E402
 from procureagent.router_lab import run_router_lab  # noqa: E402
 from procureagent.token_labels import (  # noqa: E402
     TokenLabel,
+    TokenSource,
     label_invoice_tokens,
     label_receipt_tokens,
 )
@@ -342,6 +343,15 @@ TOKEN_DISPLAY_LABELS = {
     TokenLabel.SUPPLIER: "Supplier",
 }
 
+TOKEN_SOURCE_DISPLAY_LABELS = {
+    TokenSource.OCR_ONLY: "ocr only",
+    TokenSource.INVOICE_ANCHORED_RULE: "invoice anchored rule",
+    TokenSource.RYAN_INVOICE_NUMBER_MODEL: "LayoutLMv3 invoice-number model",
+    TokenSource.INVOICE_RULE_AND_RYAN_MODEL: "invoice rule and LayoutLMv3 model",
+    TokenSource.INVOICE_AMOUNT_RULE: "invoice amount rule",
+    TokenSource.RECEIPT_FIELD_RULE: "receipt field rule",
+}
+
 TOKEN_CSS_CLASSES = {
     "Invoice number": "invoice-number",
     "Amount": "amount",
@@ -526,7 +536,7 @@ def invoice_token_labels(analysis: Any) -> dict[int, str]:
     return {
         token.index: (
             f"{TOKEN_DISPLAY_LABELS[token.label]} · "
-            f"{token.source.value.replace('_', ' ').lower()}"
+            f"{TOKEN_SOURCE_DISPLAY_LABELS[token.source]}"
         )
         for token in tokens
         if token.label is not TokenLabel.OTHER
@@ -538,7 +548,7 @@ def receipt_token_labels(ocr: Any, parsed: Any) -> dict[int, str]:
     return {
         token.index: (
             f"{TOKEN_DISPLAY_LABELS[token.label]} · "
-            f"{token.source.value.replace('_', ' ').lower()}"
+            f"{TOKEN_SOURCE_DISPLAY_LABELS[token.source]}"
         )
         for token in tokens
         if token.label is not TokenLabel.OTHER
@@ -686,7 +696,7 @@ def render_document_evidence() -> None:
     if supplier_id == "unknownco":
         st.error("Fail-closed fixture boundary: UnknownCo never reaches canonical lookup, activates no payable, and is excluded from the $6,200 obligations. This static card did not run C2.")
     else:
-        st.warning("Static stored evidence only. For actual Tesseract + Ryan model evidence, use the Guided demo.")
+        st.warning("Static stored evidence only. For actual Tesseract + LayoutLMv3 model evidence, use the Guided demo.")
     left, right = st.columns([1.05, 1])
     with left:
         tokens = " &nbsp; ".join(f"<mark>{esc(token)}</mark>" for token in evidence["evidence_tokens"])
@@ -925,7 +935,7 @@ def render_document_analysis(analysis: Any) -> None:
         )
     if run.token_predictions:
         render_annotated_invoice_image(analysis.image.image_bytes, analysis.ocr.words, run.token_predictions)
-        with st.expander("Ryan model · every word's raw label and confidence", expanded=True):
+        with st.expander("LayoutLMv3 model · every word's raw label and confidence", expanded=True):
             render_table(
                 [{"#": index, "word": token.word, "label": token.label,
                   "confidence": str(token.confidence), "margin": str(token.margin),
@@ -942,7 +952,7 @@ def render_document_analysis(analysis: Any) -> None:
             "the frozen score thresholds."
         )
     st.info(
-        "Ryan's local model reads only the invoice number. The highlighted total is a separate "
+        "The local LayoutLMv3 model reads only the invoice number. The highlighted total is a separate "
         "OCR + anchored-rule candidate; the payment plan still uses the exact Accounts Payable "
         "record retrieved only after human confirmation."
     )

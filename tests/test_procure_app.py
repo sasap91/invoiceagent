@@ -198,7 +198,7 @@ def test_mocked_guided_flow_keeps_every_explicit_gate_and_no_second_cash_hit() -
         app.button(key="eval-run-document-adapter").click().run()
         assert not app.exception
         assert "REVIEW_REQUIRED · LOW_MODEL_CONFIDENCE" in page_text(app)
-        assert "Invoice number · invoice rule and ryan model" in page_text(app)
+        assert "Invoice number · invoice rule and LayoutLMv3 model" in page_text(app)
         assert "Amount · invoice amount rule" in page_text(app)
         assert app.radio(key="eval-document-review-choice").value is None
         assert app.button(key="eval-record-human-review").disabled
