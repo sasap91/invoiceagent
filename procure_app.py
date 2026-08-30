@@ -36,13 +36,21 @@ from demo.procure_scenarios import (  # noqa: E402
 )
 from procureagent.contracts import (  # noqa: E402
     DocumentReviewDecision,
+    load_scenario,
     PaymentProofSource,
+    ProcurementAction,
     VerifierResult,
 )
 from procureagent.ui_adapters import (  # noqa: E402
+    RejectedDay,
+    UiFlowError,
     analyze_invoice_upload,
     analyze_receipt_upload,
     approve_and_simulate,
+    modify_and_reverify,
+    propose_day,
+    reject_day,
+    start_episode,
     confirm_verified_payment,
     load_overview_run,
     prepare_procurement,
@@ -54,6 +62,11 @@ from procureagent.router_lab import run_router_lab  # noqa: E402
 ASSET_DIR = ROOT / "data" / "procureagent" / "assets"
 EVAL_DIR = ROOT / "data" / "procureagent" / "eval"
 SCENARIO_PATH = ROOT / "data" / "procureagent" / "scenario_v1.json"
+CASHFLOW_SCENARIO_PATH = ROOT / "data" / "procureagent" / "scenario_cashflow_v1.json"
+EPISODE_SCENARIOS = {
+    "Locked demo · restaurant_demo_v1": None,
+    "Cash-flow · restaurant_cashflow_v1": CASHFLOW_SCENARIO_PATH,
+}
 INVOICE_PATH = ASSET_DIR / "fresh_farms_invoice.png"
 RECEIPT_PATH = ASSET_DIR / "fresh_farms_payment_receipt.png"
 MODEL_SMOKE_PATH = EVAL_DIR / "model_smoke_v1.json"
@@ -178,6 +191,49 @@ def clear_flow(after: str | None = None) -> None:
     start = 0 if after is None else FLOW_KEYS.index(after) + 1
     for key in FLOW_KEYS[start:]:
         st.session_state.pop(key, None)
+
+
+# The live episode is deliberately NOT a FLOW_KEYS member. clear_flow fires on
+# every document/receipt input change, so holding the gym there would let a
+# keystroke in an unrelated text box silently rewind the restaurant to day 0.
+EPISODE_KEY = "eval-episode"
+DAY_KEYS = ("eval-day-proposal", "eval-day-rejection")
+
+
+def clear_day() -> None:
+    for key in DAY_KEYS:
+        st.session_state.pop(key, None)
+
+
+@st.cache_resource(show_spinner=False)
+def episode_scenario(path_text: str | None) -> Any:
+    """Load and cache one scenario definition per process."""
+
+    if path_text is None:
+        return None
+    return load_scenario(path_text)
+
+
+def current_episode(label: str | None = None) -> Any:
+    """Return the session's episode, starting one on first use.
+
+    Changing the scenario starts a new episode, because a half-finished
+    restaurant cannot be transplanted into different economics.
+    """
+
+    chosen = label or next(iter(EPISODE_SCENARIOS))
+    episode = st.session_state.get(EPISODE_KEY)
+    if episode is not None and st.session_state.get("eval-episode-scenario") != chosen:
+        episode = None
+        st.session_state.pop(EPISODE_KEY, None)
+        clear_flow()
+        clear_day()
+    if episode is None:
+        path = EPISODE_SCENARIOS[chosen]
+        episode = start_episode(episode_scenario(str(path) if path else None))
+        st.session_state[EPISODE_KEY] = episode
+        st.session_state["eval-episode-scenario"] = chosen
+    return episode
 
 
 def stage_badge(label: str, detail: str, tone: str = "pending") -> None:
@@ -568,15 +624,292 @@ def render_code_provenance() -> None:
         st.caption("Missing Tesseract or model extras fail closed and remain visible in stage output.")
 
 
+def render_identity_provenance(proposal: Any) -> None:
+    """Say plainly which identities were read from a document and which were not."""
+
+    names = supplier_names()
+    rows = []
+    for record in proposal.identity_provenance:
+        if record.read_from_document:
+            detail = (
+                f"day {record.reviewed_on_day} · doc {record.document_id} · "
+                f"{record.ocr_engine or 'ocr'}"
+            )
+        else:
+            detail = "never read from a document in this session"
+        rows.append(
+            {
+                "Supplier": names.get(record.identity.supplier_id, record.identity.supplier_id),
+                "Invoice": record.identity.invoice_number,
+                "Identity provenance": record.provenance,
+                "Evidence": detail,
+            }
+        )
+    render_table(rows)
+    st.caption(
+        "Documents are read once, on day 0, by real Tesseract and the local LayoutLMv3 "
+        "adapter. Later days re-use those recorded human decisions; no document was "
+        "uploaded or re-read on this day. Carrying an identity forward asserts only "
+        "that this invoice number was verified against a real document once — not that "
+        "the supplier re-sent it."
+    )
+
+
+def render_episode_history(episode: Any) -> None:
+    rows = []
+    for item in episode.history:
+        if isinstance(item, RejectedDay):
+            rows.append(
+                {
+                    "Day": item.day,
+                    "Batch": item.proposal.batch.batch_id,
+                    "Decision": "REJECT",
+                    "Cash": f"{format_minor(item.cash_before_minor)} (unchanged)",
+                    "State version": f"{item.state_version_before} (unchanged)",
+                    "Reward": "—",
+                }
+            )
+        else:
+            rows.append(
+                {
+                    "Day": f"{item.info['day_before']}→{item.info['day_after']}",
+                    "Batch": item.info["batch_id"],
+                    "Decision": "APPROVE",
+                    "Cash": f"{format_minor(item.info['cash_before_minor'])} → "
+                    f"{format_minor(item.info['cash_after_minor'])}",
+                    "State version": item.state_after.state_version,
+                    "Reward": str(item.reward),
+                }
+            )
+    if rows:
+        st.markdown("**Episode audit trail**")
+        render_table(rows)
+
+
+def render_day_console(episode: Any) -> None:
+    """Operator-gated day loop. Proposing is pure; only APPROVE mutates state."""
+
+    environment = episode.environment
+    state = environment.state
+    st.markdown("#### 3b · Governed seven-day episode")
+
+    cols = st.columns(4)
+    cols[0].metric("Simulated day", f"{state.day} of {episode.horizon_days}")
+    cols[1].metric("Cash", format_minor(state.cash_minor))
+    cols[2].metric("Days committed", episode.steps_taken)
+    cols[3].metric("Rejections", episode.rejections)
+    inflow = environment.scenario.daily_cash_inflow_minor
+    st.caption(
+        f"Scenario {environment.scenario.scenario_id} · seed {episode.reset_info.get('seed')} · "
+        f"simulated revenue {format_minor(inflow)}/day, credited after each committed batch · "
+        "simulation only."
+    )
+
+    if episode.finished:
+        outcome = (
+            "TERMINATED · a high-criticality supplier ran out of stock"
+            if environment.terminated
+            else f"TRUNCATED · reached the {episode.horizon_days}-day horizon"
+        )
+        stage_badge("Episode complete", outcome, "ok" if environment.truncated else "stop")
+        render_episode_history(episode)
+        st.info("Use “Restart 7-day episode at day 0” above to run it again.")
+        return
+
+    proposal = st.session_state.get("eval-day-proposal")
+    if proposal is not None and proposal.state_version != state.state_version:
+        clear_day()
+        proposal = None
+        st.info(
+            "State advanced after a payment confirmation, so the day was re-proposed. "
+            "Nothing was committed."
+        )
+
+    if proposal is None:
+        if state.day == 0:
+            # Day 0 stays behind the document gate: no lookup without a human review.
+            proposal = st.session_state.get("eval-prepared")
+        else:
+            try:
+                proposal = propose_day(
+                    environment, identity_ledger=episode.identity_ledger
+                )
+            except UiFlowError as exc:
+                st.error(f"Day proposal failed closed: {exc}")
+        if proposal is not None:
+            st.session_state["eval-day-proposal"] = proposal
+
+    if proposal is None:
+        stage_badge(
+            "Day 0 proposal",
+            "WAITING · complete the document review above to plan day 0",
+            "review",
+        )
+        render_operator_controls(episode, None, blocked=True)
+        render_episode_history(episode)
+        return
+
+    render_batch_cards(proposal.batch, f"day {proposal.day} · {proposal.origin.lower()}")
+    st.caption(
+        f"Proposal binds state version {proposal.state_version} · batch {proposal.batch.batch_id}"
+    )
+    render_identity_provenance(proposal)
+
+    blocked = proposal.verification.result is VerifierResult.BLOCKED
+    stage_badge(
+        f"Verifier · day {proposal.day}",
+        f"{proposal.verification.result.value} · "
+        + (", ".join(proposal.verification.reason_codes) or "no reason codes"),
+        "stop" if blocked else "review",
+    )
+    if not blocked and not getattr(proposal, "commits_cash", True):
+        st.info(
+            "This day commits $0. Approving still advances one simulated day, ages "
+            "invoices, accrues late fees, and can disrupt a supplier."
+        )
+
+    rejection = st.session_state.get("eval-day-rejection")
+    if rejection is not None and rejection.day == proposal.day:
+        stage_badge(
+            f"Operator REJECT · day {rejection.day}",
+            f"decision {rejection.operator_decision.decision_id} · day stayed "
+            f"{rejection.day} · state version {rejection.state_version_before} → "
+            f"{rejection.state_version_after} (unchanged) · ProcureGym.step was never "
+            f"called · rejections so far: {episode.rejections}",
+            "stop",
+        )
+
+    render_operator_controls(episode, proposal, blocked=blocked)
+
+    if proposal.operator_decisions:
+        st.markdown("**Operator decisions recorded for this day**")
+        render_table(
+            [
+                {
+                    "Decision": item.decision.value,
+                    "Decision ID": item.decision_id,
+                    "Reviewed batch": item.reviewed_batch_id,
+                    "Replacement": item.replacement_batch_id or "—",
+                }
+                for item in proposal.operator_decisions
+            ]
+        )
+
+    render_episode_history(episode)
+
+
+def render_operator_controls(episode: Any, proposal: Any, *, blocked: bool) -> None:
+    """APPROVE / MODIFY / REJECT. Always rendered so the gate stays visible."""
+
+    day_label = proposal.day if proposal is not None else episode.day
+    decision = st.radio(
+        "Operator decision",
+        ("APPROVE", "MODIFY", "REJECT"),
+        key="eval-operator-decision",
+        horizontal=True,
+    )
+
+    if decision == "APPROVE":
+        st.warning(
+            "The verifier has run, but nothing has changed. Only the button below "
+            "records APPROVE and advances one simulated day."
+        )
+        if st.button(
+            f"APPROVE day {day_label} & advance ProcureGym one day",
+            key="eval-approve-batch",
+            disabled=blocked or proposal is None,
+        ):
+            try:
+                run = approve_and_simulate(proposal)
+            except Exception as exc:
+                st.error(f"Approval/simulation failed closed: {type(exc).__name__}: {exc}")
+            else:
+                episode.history.append(run)
+                st.session_state["eval-simulation"] = run
+                clear_day()
+                st.rerun()
+
+    elif decision == "MODIFY":
+        st.caption(
+            "MODIFY changes an action, never an amount. The replacement gets a new "
+            "batch ID and must clear the verifier again."
+        )
+        choices: dict[Any, Any] = {}
+        for item in (proposal.batch.recommendations if proposal is not None else ()):
+            picked = st.selectbox(
+                f"{item.supplier_id} · {item.invoice_number}",
+                ("PAY", "DEFER", "VERIFY"),
+                index=("PAY", "DEFER", "VERIFY").index(item.action.value),
+                key=f"eval-modify-{item.supplier_id}",
+            )
+            if picked != item.action.value:
+                choices[item.identity] = ProcurementAction(picked)
+        if st.button(
+            "Apply MODIFY and re-verify",
+            key="eval-apply-modify",
+            disabled=proposal is None,
+        ):
+            if not choices:
+                st.warning("MODIFY must change at least one action.")
+            else:
+                try:
+                    st.session_state["eval-day-proposal"] = modify_and_reverify(
+                        proposal, choices
+                    )
+                except Exception as exc:
+                    st.error(f"MODIFY failed closed: {type(exc).__name__}: {exc}")
+                else:
+                    st.rerun()
+        if proposal is not None and proposal.origin == "OPERATOR_MODIFIED" and st.button(
+            "Discard modifications", key="eval-discard-modify"
+        ):
+            clear_day()
+            st.rerun()
+
+    else:
+        if st.button(
+            f"REJECT day {day_label} · no state change",
+            key="eval-reject-batch",
+            disabled=proposal is None,
+        ):
+            rejected = reject_day(proposal, sequence=len(episode.history) + 1)
+            episode.history.append(rejected)
+            st.session_state["eval-day-rejection"] = rejected
+            st.rerun()
+
+
 def render_eval() -> None:
     st.markdown('<div class="pa-section">Controlled recording lane · /eval</div>', unsafe_allow_html=True)
     st.subheader("Document → human review → governed simulation → payment proof")
     st.warning("Nothing heavy runs when this page renders. Tesseract and Ryan's local model run only after the document button. Restaurant mutation and AP closure require separate later clicks.")
     st.info("**AP in plain English:** a supplier invoice is Accounts Payable—money the restaurant owes. ProcureGym records simulated approval; exact receipt proof can then close only that demo obligation. No bank is connected.")
-    if st.button("Reset recording flow", key="eval-reset-flow"):
+    scenario_label = st.radio(
+        "Episode scenario",
+        tuple(EPISODE_SCENARIOS),
+        key="eval-episode-scenario-choice",
+        horizontal=True,
+        help=(
+            "The locked demo is the frozen, hash-pinned fixture: it is solved on day 0 "
+            "and days 1-6 are deliberate no-ops. The cash-flow scenario adds simulated "
+            "daily revenue, so a deferred invoice becomes affordable later and payment "
+            "timing becomes a real decision."
+        ),
+    )
+    episode = current_episode(scenario_label)
+    reset_col, restart_col = st.columns(2)
+    if reset_col.button("Reset recording flow", key="eval-reset-flow"):
         clear_flow()
         st.session_state.pop("eval-document-input-key", None)
         st.session_state.pop("eval-receipt-input-key", None)
+    reset_col.caption("Clears the document and receipt steps. The episode keeps its day.")
+    if restart_col.button("Restart 7-day episode at day 0", key="eval-restart-episode"):
+        st.session_state.pop(EPISODE_KEY, None)
+        clear_flow()
+        clear_day()
+        st.session_state.pop("eval-document-input-key", None)
+        st.session_state.pop("eval-receipt-input-key", None)
+        st.rerun()
+    restart_col.caption("Rewinds the simulated restaurant and discards every committed day.")
     render_recording_kit()
 
     st.markdown("#### 1 · Choose and analyze the Fresh Farms invoice")
@@ -605,7 +938,7 @@ def render_eval() -> None:
         clear_flow()
         with st.spinner("Running local Tesseract and lazy local model…"):
             try:
-                analysis = analyze_invoice_upload(invoice_bytes, filename=invoice_name, supplier_id="fresh_farms", expected_invoice_number=expected)
+                analysis = analyze_invoice_upload(invoice_bytes, filename=invoice_name, supplier_id="fresh_farms", expected_invoice_number=expected, scenario=episode.environment.scenario)
             except Exception as exc:
                 st.error(f"Document pipeline failed closed: {type(exc).__name__}: {exc}")
             else:
@@ -629,7 +962,13 @@ def render_eval() -> None:
             human = record_human_identity_decision(analysis, DocumentReviewDecision(review_choice), corrected_invoice_number=correction if review_choice == "CORRECT" else None)
             st.session_state["eval-human-decision"] = human
             if human.may_activate_lookup:
-                st.session_state["eval-prepared"] = prepare_procurement(human)
+                episode.remember_identity(human)
+                st.session_state["eval-prepared"] = prepare_procurement(
+                    human,
+                    environment=episode.environment,
+                    identity_ledger=episode.identity_ledger,
+                )
+                clear_day()
         except Exception as exc:
             st.error(f"Human review failed closed: {type(exc).__name__}: {exc}")
     human = st.session_state.get("eval-human-decision")
@@ -644,18 +983,7 @@ def render_eval() -> None:
         render_prepared(prepared)
 
     st.markdown("#### 3 · Explicit operator approval")
-    simulation = st.session_state.get("eval-simulation")
-    can_approve = prepared is not None and prepared.verification.result is not VerifierResult.BLOCKED and simulation is None
-    if prepared is not None and simulation is None:
-        st.warning("Verifier ran, but state is unchanged. Only the button below records APPROVE and advances one simulated day.")
-    if st.button("APPROVE batch & advance ProcureGym one day", key="eval-approve-batch", disabled=not can_approve):
-        clear_flow("eval-prepared")
-        try:
-            simulation = approve_and_simulate(prepared)
-        except Exception as exc:
-            st.error(f"Approval/simulation failed closed: {type(exc).__name__}: {exc}")
-        else:
-            st.session_state["eval-simulation"] = simulation
+    render_day_console(episode)
     simulation = st.session_state.get("eval-simulation")
     if simulation is None:
         stage_badge("6 · Operator + ProcureGym", "NOT COMMITTED · restaurant state unchanged", "review")

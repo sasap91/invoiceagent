@@ -28,6 +28,9 @@ def values(elements) -> str:
     return "\n".join(str(element.value) for element in elements)
 
 
+EPISODE_KEY_FOR_TESTS = "eval-episode"
+
+
 def page_text(app: AppTest) -> str:
     return values(
         [
@@ -243,3 +246,143 @@ def test_eval_mocked_perception_records_all_human_and_simulation_gates() -> None
         assert not any("Receipt pipeline failed closed" in str(item.value) for item in app.error)
         assert "PAID_CONFIRMED in the simulated AP ledger" in page_text(app)
         assert app.button(key="eval-run-receipt-adapter").disabled
+
+
+def test_eval_day_console_is_operator_gated_across_the_whole_episode() -> None:
+    """REJECT must not advance time, and only APPROVE may reach the horizon."""
+
+    from tests.test_procure_ui_adapters import analyzed_document
+    import procureagent.ui_adapters as adapters
+
+    with patch.object(
+        adapters, "analyze_invoice_upload", return_value=analyzed_document()
+    ):
+        app = boot()
+        assert "Day 0 proposal" in page_text(app)
+        assert app.button(key="eval-approve-batch").disabled
+
+        app.button(key="eval-run-document-adapter").click().run()
+        app.button(key="eval-record-human-review").click().run()
+        assert not app.exception
+        assert "Proposal binds state version" in page_text(app)
+        assert not app.button(key="eval-approve-batch").disabled
+
+        # REJECT changes nothing and does not advance the day.
+        app.radio(key="eval-operator-decision").set_value("REJECT").run()
+        app.button(key="eval-reject-batch").click().run()
+        assert not app.exception
+        text = page_text(app)
+        assert "ProcureGym.step was never called" in text
+        assert "(unchanged)" in text
+
+        # APPROVE is the only thing that advances the simulated day.
+        app.radio(key="eval-operator-decision").set_value("APPROVE").run()
+        approvals = 0
+        while not app.button(key="eval-approve-batch").disabled and approvals < 10:
+            app.button(key="eval-approve-batch").click().run()
+            assert not app.exception
+            approvals += 1
+            if "Episode complete" in page_text(app):
+                break
+
+        assert approvals == 7, "seven explicit approvals should reach the horizon"
+        final = page_text(app)
+        assert "Episode complete" in final
+        assert "TRUNCATED" in final
+
+
+def test_eval_modify_into_an_over_budget_pay_is_blocked_and_cannot_step() -> None:
+    """AC-09 on stage: a modified batch must clear the verifier again."""
+
+    from tests.test_procure_ui_adapters import analyzed_document
+    import procureagent.ui_adapters as adapters
+
+    with patch.object(
+        adapters, "analyze_invoice_upload", return_value=analyzed_document()
+    ):
+        app = boot()
+        app.button(key="eval-run-document-adapter").click().run()
+        app.button(key="eval-record-human-review").click().run()
+        app.button(key="eval-approve-batch").click().run()
+        assert not app.exception
+
+        # Day 1: PackRight is $1,500 against $1,000 of cash.
+        app.radio(key="eval-operator-decision").set_value("MODIFY").run()
+        app.selectbox(key="eval-modify-packright").set_value("PAY").run()
+        app.button(key="eval-apply-modify").click().run()
+        assert not app.exception
+
+        text = page_text(app)
+        assert "BLOCKED" in text
+        assert "OVER_BUDGET" in text
+        assert "OPERATOR_MODIFIED" in text
+
+        app.radio(key="eval-operator-decision").set_value("APPROVE").run()
+        assert app.button(key="eval-approve-batch").disabled
+        assert "Proposal binds state version" in page_text(app)
+
+
+def test_reset_recording_flow_does_not_rewind_the_episode() -> None:
+    """Clearing the document steps must not silently rewind the restaurant."""
+
+    from tests.test_procure_ui_adapters import analyzed_document
+    import procureagent.ui_adapters as adapters
+
+    with patch.object(
+        adapters, "analyze_invoice_upload", return_value=analyzed_document()
+    ):
+        app = boot()
+        app.button(key="eval-run-document-adapter").click().run()
+        app.button(key="eval-record-human-review").click().run()
+        app.button(key="eval-approve-batch").click().run()
+        assert not app.exception
+
+        app.button(key="eval-reset-flow").click().run()
+        assert not app.exception
+        assert "Proposal binds state version" in page_text(app)
+
+        app.button(key="eval-restart-episode").click().run()
+        assert not app.exception
+        assert "Day 0 proposal" in page_text(app)
+
+
+def test_eval_cashflow_scenario_lets_the_agent_choose_a_payment_day() -> None:
+    """The 'when' decision must be reachable from the UI, not just headless."""
+
+    from tests.test_procure_ui_adapters import analyzed_document
+    import procureagent.ui_adapters as adapters
+
+    with patch.object(
+        adapters, "analyze_invoice_upload", return_value=analyzed_document()
+    ):
+        app = boot()
+        app.radio(key="eval-episode-scenario-choice").set_value(
+            "Cash-flow · restaurant_cashflow_v1"
+        ).run()
+        assert not app.exception
+        assert "restaurant_cashflow_v1" in page_text(app)
+
+        app.button(key="eval-run-document-adapter").click().run()
+        app.button(key="eval-record-human-review").click().run()
+        assert not app.exception
+
+        # Day 0 pays the two critical suppliers; PackRight cannot be afforded.
+        app.button(key="eval-approve-batch").click().run()
+        # Day 1 still cannot afford it.
+        app.button(key="eval-approve-batch").click().run()
+        assert not app.exception
+        assert "PackRight" in page_text(app)
+
+        # Day 2: revenue has accumulated and the agent now proposes paying it.
+        text = page_text(app)
+        assert "day 2" in text.lower()
+        app.button(key="eval-approve-batch").click().run()
+        assert not app.exception
+
+        episode = app.session_state[EPISODE_KEY_FOR_TESTS]
+        packright = next(
+            invoice
+            for invoice in episode.environment.state.invoices
+            if invoice.supplier_id == "packright"
+        )
+        assert packright.payment_status.value == "simulated_payment_approved"
