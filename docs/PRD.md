@@ -656,13 +656,13 @@ Before/after state, cash and inventory movement, fees, supplier status, raw metr
 
 | Member | Current recorded status |
 |---|---|
-| **Sasa** | Team member; no build category claimed in this document yet |
-| **Ryan** | Team member and owner of the pre-existing invoice-number model asset; no new category inferred |
-| **David** | Team member; **OCR / document ingestion claimed** |
-| **Wilson** | Team member; no build category claimed in this document yet |
-| **Dillon** | Team member; no build category claimed yet |
+| **Sasa P** | Co-owner: C7; owner: C8 |
+| **Ryan Nie** | Co-owner: C1, C2, C4, and C6; owner of the pre-existing invoice-number model asset |
+| **David / @cheezburgerz** | Co-owner: C1 and C6 |
+| **Wilson / @skylarwooster** | Owner: C0, C3, and C5; co-owner: C7 |
+| **Dillon** | Co-owner: C1, C2, C4, and C6 |
 
-No one is silently assigned work. Existing expertise is context, not consent to own a new category.
+These assignments were confirmed by Wilson on 30 August 2026. Multiple names indicate shared ownership; the co-owners must agree who signs off the category's done test.
 
 ---
 
@@ -678,15 +678,15 @@ No one is silently assigned work. Existing expertise is context, not consent to 
 
 | Claim state | Category | Scope | Dependencies | Deliverable / done test | Owner / delivery |
 |---|---|---|---|---|---|
-| **OPEN** | **C0 — Pivot contract and locked fixtures** | Freeze schemas, enums, reasons, primary invoices, restaurant, lookup, and seed. Remove active AP/AR assumptions. | All component owners | One fixture validates end to end; no P0 contract requires AR, receipts, or partial payments. | **No owner · blocks integration** |
-| **CLAIMED** | **C1 — OCR and document ingestion** | Image intake, ID/hash, OCR words, boxes, raw text, metadata, fallback, and failure behavior. | Locked images and OCR schema | One command produces contract-valid OCR; missing OCR yields labeled replay or review, never invented identity. | **David · NOT VERIFIED** |
-| **OPEN** | **C2 — Local specialist, evidence, and document gate** | Package Ryan's adapter; return value, entity tokens/boxes/scores, latency, version, failures, and anchored-rule candidate; merge proposals and decide verified identity or document review. | C1; Ryan's artifact; license review | Another member runs correct, wrong, missing, ungrounded, ambiguous, and rule/model-disagreement fixtures outside a notebook; unsafe identity never reaches C3 and every failure remains in metrics. | **No owner · Ryan is consulted asset owner** |
-| **OPEN** | **C3 — Supplier lookup and restaurant state** | Composite lookup, synthetic invoices, exact cash, inventory, due dates, criticality, status, and versioning. | C0 contract; C2 verified identity for live integration | $5,000 cash and $6,200 obligations reproduce exactly; unknown IDs activate nothing. | **No owner** |
-| **OPEN** | **C4 — Recommendation, verifier, and governance** | Implement Criticality-Aware Greedy v1, daily batch schema, reasons, hard checks, operator controls, reverification, and audit events. | C3; document gate | Four-invoice batch is deterministic; unsafe, modified-unverified, unapproved, or stale batches cannot reach ProcureGym. | **No owner** |
-| **OPEN** | **C5 — ProcureGym, reward, and baselines** | Seeded batch reset/step, transitions, horizon, raw metrics, reward, Earliest Due First, and fixed evaluation executor. | C0, C3, C4 approved-batch contract | Same state runs reproducibly under both P0 policies; only approved batches change state. | **No owner** |
-| **OPEN** | **C6 — Contextual-bandit Router Lab** | Action matrix, constrained reward, training/development split, frozen test, and fixed-gate comparison. | C1/C2 outputs; locked labels | Report learned router only if it beats declared baselines without more unsafe accepts; otherwise show negative result. | **No owner · P1 stretch** |
-| **OPEN** | **C7 — Demo UI, orchestration, and deployment** | Streamlit path, health/errors, live/replay labels, public URL, and offline backup. | Stable C0–C5 contracts | Clean-browser 2–3 minute demo works; public and offline paths pass rehearsal. | **No owner** |
-| **OPEN** | **C8 — Evaluation, QA, and presentation proof** | Locked evaluation, adversarial attacks, results card, runbook, talk track, and release checklist. | All P0 outputs | One command runs P0 acceptance; zero unapproved mutations; each public claim is reproducible or labeled planned. | **No owner** |
+| **CLAIMED** | **C0 — Pivot contract and locked fixtures** | Freeze schemas, enums, reasons, primary invoices, restaurant, lookup, and seed. Remove active AP/AR assumptions. | All component owners | One fixture validates end to end; no P0 contract requires AR, receipts, or partial payments. | **Wilson / @skylarwooster · IN PROGRESS** |
+| **CLAIMED** | **C1 — OCR and document ingestion** | Image intake, ID/hash, OCR words, boxes, raw text, metadata, fallback, and failure behavior. | Locked images and OCR schema | One command produces contract-valid OCR; missing OCR yields labeled replay or review, never invented identity. | **David / @cheezburgerz + Ryan Nie + Dillon · NOT VERIFIED** |
+| **CLAIMED** | **C2 — Local specialist, evidence, and document gate** | Package Ryan's adapter; return value, entity tokens/boxes/scores, latency, version, failures, and anchored-rule candidate; merge proposals and decide verified identity or document review. | C1; Ryan's artifact; license review | Another member runs correct, wrong, missing, ungrounded, ambiguous, and rule/model-disagreement fixtures outside a notebook; unsafe identity never reaches C3 and every failure remains in metrics. | **Ryan Nie + Dillon · NOT VERIFIED** |
+| **CLAIMED** | **C3 — Supplier lookup and restaurant state** | Composite lookup, synthetic invoices, exact cash, inventory, due dates, criticality, status, and versioning. | C0 contract; C2 verified identity for live integration | $5,000 cash and $6,200 obligations reproduce exactly; unknown IDs activate nothing. | **Wilson / @skylarwooster · IN PROGRESS** |
+| **CLAIMED** | **C4 — Recommendation, verifier, and governance** | Implement Criticality-Aware Greedy v1, daily batch schema, reasons, hard checks, operator controls, reverification, and audit events. | C3; document gate | Four-invoice batch is deterministic; unsafe, modified-unverified, unapproved, or stale batches cannot reach ProcureGym. | **Ryan Nie + Dillon · NOT VERIFIED** |
+| **CLAIMED** | **C5 — ProcureGym, reward, and baselines** | Seeded batch reset/step, transitions, horizon, raw metrics, reward, Earliest Due First, and fixed evaluation executor. | C0, C3, C4 approved-batch contract | Same state runs reproducibly under both P0 policies; only approved batches change state. | **Wilson / @skylarwooster · IN PROGRESS** |
+| **CLAIMED** | **C6 — Contextual-bandit Router Lab** | Action matrix, constrained reward, training/development split, frozen test, and fixed-gate comparison. | C1/C2 outputs; locked labels | Report learned router only if it beats declared baselines without more unsafe accepts; otherwise show negative result. | **David / @cheezburgerz + Ryan Nie + Dillon · NOT VERIFIED · P1** |
+| **CLAIMED** | **C7 — Demo UI, orchestration, and deployment** | Streamlit path, health/errors, live/replay labels, public URL, and offline backup. | Stable C0–C5 contracts | Clean-browser 2–3 minute demo works; public and offline paths pass rehearsal. | **Wilson / @skylarwooster + Sasa P · IN PROGRESS** |
+| **CLAIMED** | **C8 — Evaluation, QA, and presentation proof** | Locked evaluation, adversarial attacks, results card, runbook, talk track, and release checklist. | All P0 outputs | One command runs P0 acceptance; zero unapproved mutations; each public claim is reproducible or labeled planned. | **Sasa P · NOT VERIFIED** |
 
 ### Parallel-work rule
 
