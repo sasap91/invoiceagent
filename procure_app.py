@@ -69,6 +69,14 @@ EPISODE_SCENARIOS = {
     "Cash-flow · restaurant_cashflow_v1": CASHFLOW_SCENARIO_PATH,
 }
 INVOICE_PATH = ASSET_DIR / "fresh_farms_invoice.png"
+# Every invoice in the batch now has a document, so "the agent reads the
+# invoices" is literally true rather than true of one of four.
+INVOICE_ASSETS = {
+    "fresh_farms": (ASSET_DIR / "fresh_farms_invoice.png", "FF-10482"),
+    "prime_foods": (ASSET_DIR / "prime_foods_invoice.png", "PF-25031"),
+    "packright": (ASSET_DIR / "packright_invoice.png", "PR-15007"),
+    "cleanpro": (ASSET_DIR / "cleanpro_invoice.png", "CP-70019"),
+}
 RECEIPT_PATH = ASSET_DIR / "fresh_farms_payment_receipt.png"
 MODEL_SMOKE_PATH = EVAL_DIR / "model_smoke_v1.json"
 RECEIPT_PROVENANCE_PATH = ASSET_DIR / "receipt_provenance.json"
@@ -965,25 +973,50 @@ def render_eval() -> None:
     restart_col.caption("Rewinds the simulated restaurant and discards every committed day.")
     render_recording_kit()
 
-    st.markdown("#### 1 · Choose and analyze the Fresh Farms invoice")
-    source_choice = st.radio("Invoice source", ("Bundled Fresh Farms PNG", "Upload PNG/JPEG"), key="eval-invoice-source", horizontal=True)
-    st.selectbox("Confirmed supplier selection", ("fresh_farms",), key="eval-supplier", disabled=True)
-    expected = st.text_input("Operator expected invoice number", "FF-10482", key="eval-expected-reference")
+    st.markdown("#### 1 · Choose and analyze a supplier invoice")
+    source_choice = st.radio("Invoice source", ("Bundled supplier PNG", "Upload PNG/JPEG"), key="eval-invoice-source", horizontal=True)
+    read_already = {
+        record.identity.supplier_id
+        for record in episode.identity_ledger.values()
+        if record.read_from_document
+    }
+    supplier_id = st.selectbox(
+        "Confirmed supplier selection",
+        tuple(INVOICE_ASSETS),
+        key="eval-supplier",
+        format_func=lambda value: (
+            f"{value} · read" if value in read_already else value
+        ),
+        help="The operator selects the supplier before upload; a model hint never becomes a verified supplier ID.",
+    )
+    default_reference = INVOICE_ASSETS[supplier_id][1]
+    expected = st.text_input(
+        "Operator expected invoice number",
+        default_reference,
+        key=f"eval-expected-reference-{supplier_id}",
+    )
+    if read_already:
+        st.caption(
+            "Read from a document this session: "
+            + ", ".join(sorted(read_already))
+            + ". Any invoice not listed enters the batch as a labelled fixture identity."
+        )
     if source_choice == "Upload PNG/JPEG":
         upload = st.file_uploader("Invoice PNG/JPEG", type=("png", "jpg", "jpeg"), key="eval-invoice-upload")
         invoice_bytes = upload.getvalue() if upload is not None else b""
         invoice_name = upload.name if upload is not None else "invoice-upload"
     else:
-        invoice_bytes = read_bytes(INVOICE_PATH)
-        invoice_name = INVOICE_PATH.name
+        asset_path = INVOICE_ASSETS[supplier_id][0]
+        invoice_bytes = read_bytes(asset_path)
+        invoice_name = asset_path.name
         if invoice_bytes:
             render_responsive_image(
                 invoice_bytes,
-                caption="Bundled synthetic Fresh Farms invoice",
+                caption=f"Bundled synthetic {supplier_id} invoice",
             )
         else:
             st.error("Bundled invoice asset is missing; choose upload.")
-    input_key = hashlib.sha256(invoice_bytes).hexdigest() + "|" + expected if invoice_bytes else ""
+    input_key = hashlib.sha256(invoice_bytes).hexdigest() + "|" + expected + "|" + supplier_id if invoice_bytes else ""
     if st.session_state.get("eval-document-input-key") != input_key:
         clear_flow()
         st.session_state["eval-document-input-key"] = input_key
@@ -991,7 +1024,7 @@ def render_eval() -> None:
         clear_flow()
         with st.spinner("Running local Tesseract and lazy local model…"):
             try:
-                analysis = analyze_invoice_upload(invoice_bytes, filename=invoice_name, supplier_id="fresh_farms", expected_invoice_number=expected, scenario=episode.environment.scenario)
+                analysis = analyze_invoice_upload(invoice_bytes, filename=invoice_name, supplier_id=supplier_id, expected_invoice_number=expected, scenario=episode.environment.scenario)
             except Exception as exc:
                 st.error(f"Document pipeline failed closed: {type(exc).__name__}: {exc}")
             else:
@@ -1004,7 +1037,7 @@ def render_eval() -> None:
 
     st.markdown("#### 2 · Explicit human document decision")
     review_choice = st.radio("Document review decision", ("CONFIRM", "CORRECT", "REJECT"), key="eval-document-review-choice", horizontal=True, disabled=analysis is None)
-    correction = st.text_input("Correct invoice number", value="FF-10482", key="eval-corrected-reference", disabled=analysis is None or review_choice != "CORRECT")
+    correction = st.text_input("Correct invoice number", value=default_reference, key=f"eval-corrected-reference-{supplier_id}", disabled=analysis is None or review_choice != "CORRECT")
     existing_human = st.session_state.get("eval-human-decision")
     if existing_human is not None and (existing_human.decision.value != review_choice or (review_choice == "CORRECT" and existing_human.reviewed_invoice_number != correction)):
         st.session_state.pop("eval-human-decision", None)
