@@ -40,6 +40,7 @@ from procureagent.contracts import (  # noqa: E402
     VerifierResult,
 )
 from procureagent.ui_adapters import (  # noqa: E402
+    UiFlowError,
     analyze_invoice_upload,
     analyze_receipt_upload,
     approve_and_simulate,
@@ -1329,6 +1330,15 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
                     with st.spinner("Looking up the exact AP record and checking today's plan…"):
                         st.session_state["eval-prepared"] = prepare_procurement(human)
                     st.rerun()
+            except UiFlowError as exc:
+                if "absent from locked lookup" in str(exc):
+                    st.error(
+                        "This demo only has one real invoice on file for Fresh Farms: `FF-10482`. "
+                        "The number you confirmed or entered doesn't match it, so no payable was activated. "
+                        "Try **Confirm** to accept the model's reading, or check your correction for typos."
+                    )
+                else:
+                    st.error(f"Human review stopped safely: {type(exc).__name__}: {exc}")
             except Exception as exc:
                 st.error(f"Human review stopped safely: {type(exc).__name__}: {exc}")
 
