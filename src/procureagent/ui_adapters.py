@@ -21,6 +21,10 @@ from .contracts import (
     InvoicePaymentStatus,
     PaymentProofSource,
     ProcureScenario,
+    RecordSource,
+    SupplierCriticality,
+    SupplierStatus,
+    SyntheticSupplierInvoice,
     VerifiedInvoiceIdentity,
     VerifierResult,
     load_locked_scenario,
@@ -45,7 +49,7 @@ from .gym import ProcureGym
 from .ocr import IngestedImage, OcrResult, TesseractOCR, ingest_image
 from .policy import criticality_aware_greedy_v1
 from .receipt import ParsedReceipt, PaymentProofGateResult, build_payment_proof, parse_receipt
-from .state import lookup_invoice, lookup_verified_invoice, require_invoice
+from .state import lookup_verified_invoice, require_invoice
 
 
 class UiFlowError(RuntimeError):
@@ -278,8 +282,6 @@ def record_human_identity_decision(
         status = DocumentStatus.CORRECTED
 
     identity = InvoiceIdentity(analysis.supplier_id, invoice_number)
-    if lookup_invoice(analysis.scenario.initial_state, identity) is None:
-        raise UiFlowError("human-reviewed composite identity is absent from locked lookup")
     verified = VerifiedInvoiceIdentity(
         document_id=analysis.image.document_id,
         supplier_id=identity.supplier_id,
@@ -312,7 +314,30 @@ def prepare_procurement(decision: HumanIdentityDecision) -> PreparedProcurement:
     scenario = decision.analysis.scenario
     looked_up = lookup_verified_invoice(scenario.initial_state, verified_identity)
     if looked_up is None:
-        raise UiFlowError("exact composite lookup returned no invoice")
+        # Not one of the four locked demo invoices: build a clearly-labeled
+        # placeholder so the operator can still see a lookup result for any
+        # invoice number they type, instead of failing closed. It never
+        # enters the real batch/simulation below, which always reflects only
+        # the locked fixture data.
+        looked_up = SyntheticSupplierInvoice(
+            supplier_id=verified_identity.supplier_id,
+            invoice_number=verified_identity.invoice_number,
+            category="operator_typed",
+            amount_minor=1,
+            currency="USD",
+            due_in_days=0,
+            inventory_days_remaining=0,
+            delivery_lead_days=0,
+            payment_unlocks_delivery=False,
+            delivery_inventory_days=0,
+            supplier_criticality=SupplierCriticality.LOW,
+            supplier_status=SupplierStatus.UNKNOWN,
+            payment_status=InvoicePaymentStatus.UNPAID,
+            state_version=scenario.initial_state.state_version,
+            late_fee_minor_per_day=0,
+            disruption_after_days_overdue=None,
+            record_source=RecordSource.OPERATOR_TYPED_PLACEHOLDER,
+        )
 
     fixture_identities = fixture_verified_identities(scenario.initial_state)
     verified = tuple(

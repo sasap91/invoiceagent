@@ -12,6 +12,7 @@ from procureagent.contracts import (
     InvoiceNumberCandidate,
     InvoicePaymentStatus,
     PaymentProofSource,
+    RecordSource,
     VerifierResult,
 )
 from procureagent.document import (
@@ -167,6 +168,29 @@ def test_low_score_exact_document_still_requires_explicit_human_review():
     assert rejected.may_activate_lookup is False
     with pytest.raises(UiFlowError, match="explicit human"):
         prepare_procurement(rejected)
+
+
+def test_correcting_to_an_unlocked_invoice_number_produces_a_labeled_placeholder():
+    analysis = analyzed_document()
+    human = record_human_identity_decision(
+        analysis, DocumentReviewDecision.CORRECT, corrected_invoice_number="ZZ-99999"
+    )
+    assert human.reviewed_invoice_number == "ZZ-99999"
+    assert human.verified_identity.invoice_number == "ZZ-99999"
+
+    prepared = prepare_procurement(human)
+    placeholder = prepared.looked_up_invoice
+    assert placeholder.invoice_number == "ZZ-99999"
+    assert placeholder.record_source is RecordSource.OPERATOR_TYPED_PLACEHOLDER
+
+    # The real locked batch and its verified identities are unaffected: the
+    # placeholder never enters the actual four-invoice demo obligations.
+    locked_invoice_numbers = {item.invoice_number for item in prepared.scenario.initial_state.invoices}
+    assert "ZZ-99999" not in locked_invoice_numbers
+    assert all(
+        identity.invoice_number in locked_invoice_numbers for identity in prepared.verified_identities
+    )
+    assert prepared.verification.result is VerifierResult.REQUIRES_OPERATOR
 
 
 def test_full_controlled_flow_needs_human_then_operator_then_verified_proof():

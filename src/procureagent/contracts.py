@@ -24,6 +24,7 @@ class ContractValidationError(ValueError):
 
 class RecordSource(str, Enum):
     SYNTHETIC_FIXTURE_LOOKUP = "synthetic_fixture_lookup"
+    OPERATOR_TYPED_PLACEHOLDER = "operator_typed_placeholder"
 
 
 class SupplierSource(str, Enum):

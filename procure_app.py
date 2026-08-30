@@ -37,10 +37,10 @@ from demo.procure_scenarios import (  # noqa: E402
 from procureagent.contracts import (  # noqa: E402
     DocumentReviewDecision,
     PaymentProofSource,
+    RecordSource,
     VerifierResult,
 )
 from procureagent.ui_adapters import (  # noqa: E402
-    UiFlowError,
     analyze_invoice_upload,
     analyze_receipt_upload,
     approve_and_simulate,
@@ -967,16 +967,29 @@ def render_document_analysis(analysis: Any) -> None:
 
 def render_prepared(prepared: Any) -> None:
     invoice = prepared.looked_up_invoice
-    stage_badge(
-        "Exact invoice found",
-        f"{invoice.supplier_id} + {invoice.invoice_number} · locked synthetic business record",
-        "ok",
-    )
+    is_placeholder = invoice.record_source is RecordSource.OPERATOR_TYPED_PLACEHOLDER
+    if is_placeholder:
+        stage_badge(
+            "Invoice number not in the locked demo dataset",
+            f"{invoice.supplier_id} + {invoice.invoice_number} · placeholder record, not real business data",
+            "review",
+        )
+        st.warning(
+            "This invoice number isn't one of the four invoices locked into this demo, so there's no "
+            "real Accounts Payable record for it. The numbers below are made-up placeholders — not a "
+            "real amount, due date, or criticality — shown only so you can see the lookup step complete."
+        )
+    else:
+        stage_badge(
+            "Exact invoice found",
+            f"{invoice.supplier_id} + {invoice.invoice_number} · locked synthetic business record",
+            "ok",
+        )
     cols = st.columns(4)
-    cols[0].metric("Accounts Payable", format_minor(invoice.amount_minor))
-    cols[1].metric("Inventory left", f"{invoice.inventory_days_remaining} days")
-    cols[2].metric("Due in", f"{invoice.due_in_days} days")
-    cols[3].metric("Supplier importance", invoice.supplier_criticality.value.title())
+    cols[0].metric("Accounts Payable", "Unknown" if is_placeholder else format_minor(invoice.amount_minor))
+    cols[1].metric("Inventory left", "Unknown" if is_placeholder else f"{invoice.inventory_days_remaining} days")
+    cols[2].metric("Due in", "Unknown" if is_placeholder else f"{invoice.due_in_days} days")
+    cols[3].metric("Supplier importance", "Unknown" if is_placeholder else invoice.supplier_criticality.value.title())
     st.caption(
         "The amount and business context came from exact lookup after human-reviewed identity; "
         "the invoice-number model did not extract them."
@@ -990,10 +1003,17 @@ def render_prepared(prepared: Any) -> None:
         "stop" if verification.result is VerifierResult.BLOCKED else "review",
     )
     st.caption("Checks passed: " + " · ".join(verification.checks_passed))
-    st.info(
-        "Fresh Farms uses the invoice you reviewed. The other three suppliers use locked "
-        "fixture identities so this four-invoice demo stays reproducible."
-    )
+    if is_placeholder:
+        st.info(
+            "The plan above always reflects the locked four-invoice demo batch — it does not change "
+            "based on the placeholder invoice number you typed, since that number isn't part of the "
+            "real obligations this simulation tracks."
+        )
+    else:
+        st.info(
+            "Fresh Farms uses the invoice you reviewed. The other three suppliers use locked "
+            "fixture identities so this four-invoice demo stays reproducible."
+        )
 
 
 def render_simulation(simulation: Any) -> None:
@@ -1108,7 +1128,21 @@ def render_code_provenance() -> None:
 def render_journal_entry(prepared: Any) -> None:
     """Explain the Fresh Farms portion of the simulated payment entry."""
 
-    amount = format_minor(prepared.looked_up_invoice.amount_minor)
+    invoice = prepared.looked_up_invoice
+    extra_note = ""
+    if invoice.record_source is RecordSource.OPERATOR_TYPED_PLACEHOLDER:
+        supplier_id = prepared.human_decision.analysis.supplier_id
+        real_invoice = next(
+            (item for item in prepared.scenario.initial_state.invoices if item.supplier_id == supplier_id),
+            None,
+        )
+        amount = format_minor(real_invoice.amount_minor) if real_invoice is not None else "Unknown"
+        extra_note = (
+            " This entry always reflects the real locked invoice for this supplier, not the "
+            "placeholder invoice number you typed above."
+        )
+    else:
+        amount = format_minor(invoice.amount_minor)
     st.markdown(
         '<div class="pa-journal" aria-label="Simulated accounting entry">'
         '<div class="pa-journal-entry"><span>Debit</span><b>Accounts Payable — Fresh Farms</b>'
@@ -1117,7 +1151,7 @@ def render_journal_entry(prepared: Any) -> None:
         f'<strong>{esc(amount)}</strong><br><small>Asset decreases</small></div>'
         '<div class="pa-journal-note">This entry belongs to the approved simulated payment. '
         'Receipt confirmation later adds evidence and changes status to PAID_CONFIRMED; '
-        'it does not post this entry or deduct cash a second time.</div></div>',
+        f'it does not post this entry or deduct cash a second time.{esc(extra_note)}</div></div>',
         unsafe_allow_html=True,
     )
 
@@ -1143,8 +1177,13 @@ def render_completed_summaries(current_step: int) -> None:
             f"Completed · Human review · {human.decision.value} {human.reviewed_invoice_number}",
             expanded=False,
         ):
+            lookup_display = (
+                "Unknown (placeholder invoice number)"
+                if prepared.looked_up_invoice.record_source is RecordSource.OPERATOR_TYPED_PLACEHOLDER
+                else format_minor(prepared.looked_up_invoice.amount_minor)
+            )
             st.write(
-                f"Exact AP lookup: {format_minor(prepared.looked_up_invoice.amount_minor)} · "
+                f"Exact AP lookup: {lookup_display} · "
                 f"plan verifier: {prepared.verification.result.value}"
             )
             st.caption(f"Review `{human.review_id}` · lookup was blocked until this decision.")
@@ -1330,15 +1369,6 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
                     with st.spinner("Looking up the exact AP record and checking today's plan…"):
                         st.session_state["eval-prepared"] = prepare_procurement(human)
                     st.rerun()
-            except UiFlowError as exc:
-                if "absent from locked lookup" in str(exc):
-                    st.error(
-                        "This demo only has one real invoice on file for Fresh Farms: `FF-10482`. "
-                        "The number you confirmed or entered doesn't match it, so no payable was activated. "
-                        "Try **Confirm** to accept the model's reading, or check your correction for typos."
-                    )
-                else:
-                    st.error(f"Human review stopped safely: {type(exc).__name__}: {exc}")
             except Exception as exc:
                 st.error(f"Human review stopped safely: {type(exc).__name__}: {exc}")
 
