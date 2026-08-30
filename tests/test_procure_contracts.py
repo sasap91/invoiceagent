@@ -47,6 +47,7 @@ def test_locked_fixture_reproduces_cash_obligations_and_identity(scenario):
     assert scenario.horizon_days == 7
     assert state.day == 0
     assert state.state_version == 1
+    assert state.restaurant_id == "sugar_and_spice_thai_restaurant"
     assert state.currency == "USD"
     assert state.cash_minor == 500_000
     assert state.total_obligations_minor == 620_000

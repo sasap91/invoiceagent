@@ -1,6 +1,8 @@
 # Guided demo overrides
 
-These rules override the ProcureAgent master file for the default public route.
+The post-confirmation finish state adds an explicit **Done — view AP history** action and derives Open, Paid-awaiting-proof, and Completed categories from the actual simulated ledger.
+
+These rules override the InvoiceAgent master file for the default public route.
 
 ## Structure
 

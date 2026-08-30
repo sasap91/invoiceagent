@@ -165,7 +165,7 @@
       "details": {
         "artifact_kind": "hash_bound_captured_replay_not_a_live_run",
         "candidate": "FF-10482",
-        "current_invoice_sha256": "d25682a2b982a6552fac707c5c09d3ac2a588e27c82c820c55cb65f914bfe155",
+        "current_invoice_sha256": "dc0c8ea5055b5c9c9035e5498a7fc38b960759d604a29911b7fa5caab1c8b001",
         "document_gate": "REVIEW_REQUIRED",
         "expected": "FF-10482",
         "gate_reasons": [
@@ -183,8 +183,8 @@
           "FF-10482"
         ],
         "invoice_engine": "tesseract 5.5.3",
-        "invoice_quality": "0.9337552758461538461538461538",
-        "invoice_words": 65,
+        "invoice_quality": "0.9335610179761904761904761905",
+        "invoice_words": 84,
         "parsed_receipt": {
           "amount_minor": 150000,
           "currency": "USD",
@@ -195,8 +195,8 @@
           "supplier_id": "fresh_farms"
         },
         "receipt_engine": "tesseract 5.5.3",
-        "receipt_quality": "0.9555632297872340425531914894",
-        "receipt_words": 47
+        "receipt_quality": "0.9509770270909090909090909091",
+        "receipt_words": 55
       },
       "name": "real_local_ocr",
       "passed": true
@@ -242,8 +242,8 @@
         "candidate": "FF-10482",
         "claim_scope": "one synthetic invoice smoke test",
         "document_gate": "REVIEW_REQUIRED",
-        "entity_mean_margin": "0.3509486615657806",
-        "entity_min_confidence": "0.6363860964775085",
+        "entity_mean_margin": "0.2439324557781220",
+        "entity_min_confidence": "0.5884184837341309",
         "evidence_tokens": [
           "FF-10482"
         ],
@@ -251,7 +251,7 @@
         "gate_reasons": [
           "LOW_MODEL_CONFIDENCE"
         ],
-        "latency_ms": "2021.3",
+        "latency_ms": "218.2",
         "model_version": "ryanznie/layoutlmv3-lora-invoice-number@7dc28f5a3b14aa100ba432ee1b0a6cac6c7b2c5c (base microsoft/layoutlmv3-base@cfbbbff0762e6aab37086fdd4739ad14fe7d5db4) on mps",
         "status": "SUCCESS",
         "strict_exact": true
@@ -266,8 +266,8 @@
     "candidate": "FF-10482",
     "claim_scope": "one synthetic invoice smoke test",
     "document_gate": "REVIEW_REQUIRED",
-    "entity_mean_margin": "0.3509486615657806",
-    "entity_min_confidence": "0.6363860964775085",
+    "entity_mean_margin": "0.2439324557781220",
+    "entity_min_confidence": "0.5884184837341309",
     "evidence_tokens": [
       "FF-10482"
     ],
@@ -275,7 +275,7 @@
     "gate_reasons": [
       "LOW_MODEL_CONFIDENCE"
     ],
-    "latency_ms": "2021.3",
+    "latency_ms": "218.2",
     "model_version": "ryanznie/layoutlmv3-lora-invoice-number@7dc28f5a3b14aa100ba432ee1b0a6cac6c7b2c5c (base microsoft/layoutlmv3-base@cfbbbff0762e6aab37086fdd4739ad14fe7d5db4) on mps",
     "status": "SUCCESS",
     "strict_exact": true

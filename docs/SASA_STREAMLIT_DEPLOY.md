@@ -1,4 +1,4 @@
-# Sasa — deploy ProcureAgent to a permanent Streamlit URL
+# Sasa — deploy InvoiceAgent to a permanent Streamlit URL
 
 > **Optional fallback:** the team currently prefers the containerized [Google Cloud Run path](CLOUD_RUN_DEPLOY.md). Use this checklist only if the team decides to use Streamlit Community Cloud after all.
 
@@ -18,7 +18,7 @@ Wilson has prepared the repository for Streamlit Community Cloud. Because you ad
    | Main file path | `procure_app.py` |
    | Python version | `3.12` |
 
-5. Choose a memorable app URL if Streamlit offers one, such as `procureagent` or `procure-agent-demo`.
+5. Choose a memorable app URL if Streamlit offers one, such as `invoiceagent` or `invoice-agent-demo`.
 6. Do **not** add `FAL_KEY`, banking credentials, invoice data, or any other secret. The recording demo uses committed synthetic fixtures and does not need a secret.
 7. Select **Deploy** and keep the build log open. `packages.txt` installs Tesseract; `requirements.txt` installs Streamlit, Pillow, Torch, Transformers, PEFT, and the repository package.
 8. Send the resulting `https://...streamlit.app` URL to Wilson and the team.
@@ -40,8 +40,8 @@ The first model run downloads the pinned LayoutLMv3 base and Ryan's adapter. Do 
 - The app opens in a private/incognito browser window.
 - The bundled invoice and receipt images render.
 - Invoice OCR reports real Tesseract output.
-- Ryan's pinned local model proposes `FF-10482`.
-- The screen clearly says the amount and restaurant context come from OCR/rules or synthetic lookup—not Ryan's model.
+- The pinned LayoutLMv3 specialist adapted by Ryan proposes `FF-10482`.
+- The screen clearly says the amount and restaurant context come from OCR/rules or synthetic lookup—not LayoutLMv3.
 - No state changes before explicit human/operator approval.
 - The receipt matches supplier, invoice, full amount, and currency.
 - The final state says simulated `PAID_CONFIRMED` and **no real money moved**.

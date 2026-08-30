@@ -384,8 +384,11 @@ def run_acceptance(
                 source=PaymentProofSource.OPERATOR_UPLOAD,
                 provenance="acceptance:forged-parsed-evidence",
             )
+            amount_evidence = next(
+                item for item in parsed.evidence if item.field_name == "amount_minor"
+            )
             amount_line = tuple(
-                word for word in receipt_ocr.words if word.line == 10
+                receipt_ocr.words[index] for index in amount_evidence.word_indices
             )
             duplicate_line_number = max(word.line for word in receipt_ocr.words) + 1
             conflicting_amount_words = tuple(

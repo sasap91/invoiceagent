@@ -1,5 +1,6 @@
-"""Render-level acceptance checks for ProcureAgent's controlled P0 UI."""
+"""Render-level acceptance checks for InvoiceAgent's controlled P0 UI."""
 
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -16,10 +17,23 @@ from procureagent.ui_adapters import _reset_cached_ryan_adapter_for_tests
 
 
 APP = str((Path(__file__).resolve().parents[1] / "procure_app.py").resolve())
+SESSION_SCHEMA = "invoiceagent-guided-v2-20260830"
 
 
 def boot() -> AppTest:
     app = AppTest.from_file(APP, default_timeout=20).run()
+    assert not app.exception
+    return app
+
+
+def boot_with_flow(**values) -> AppTest:
+    """Seed current-schema workflow objects without the hot-reload guard clearing them."""
+
+    app = AppTest.from_file(APP, default_timeout=20)
+    app.session_state["invoiceagent-session-schema"] = SESSION_SCHEMA
+    for key, value in values.items():
+        app.session_state[key] = value
+    app.run()
     assert not app.exception
     return app
 
@@ -68,10 +82,15 @@ def test_three_route_shell_defaults_to_progressive_guided_demo() -> None:
     assert list(route.options) == ["Guided demo", "Overview", "Evidence & methods"]
     assert '<ol class="pa-progress"' in page_text(app)
     assert 'class="current" aria-current="step"' in page_text(app)
-    assert "Read the invoice" in page_text(app)
+    assert "InvoiceAgent" in page_text(app)
+    assert "Paper invoice in. Paid proof out." in page_text(app)
+    assert "Sugar &amp; Spice Thai Restaurant" in page_text(app)
+    assert "Scan the vendor invoice" in page_text(app)
+    assert "Synthetic documents" in page_text(app)
+    assert "No affiliation" in page_text(app)
     assert "Simulation only" in page_text(app)
-    assert "Human approval required" in page_text(app)
-    assert "No bank or ERP connected" in page_text(app)
+    assert "Human controlled" in page_text(app)
+    assert "No bank or ERP is connected" in page_text(app)
 
     # Progressive disclosure: only the current step's action exists.
     button_keys = {button.key for button in app.button}
@@ -153,7 +172,9 @@ def test_guided_defaults_are_lazy_and_require_supplier_then_human_choice() -> No
     text = page_text(app)
     for phrase in (
         "Nothing runs until you ask it to",
-        "Accounts Payable is money the business owes a supplier",
+        "Accounts Payable: money the restaurant owes its vendor",
+            "LayoutLMv3 + LoRA · adapted by Ryan",
+        "The supervised specialist identifies the invoice number only",
         "NOT RUN · click required",
         "The evaluation answer key is hidden from this workflow",
     ):
@@ -169,6 +190,75 @@ def test_guided_defaults_are_lazy_and_require_supplier_then_human_choice() -> No
         "PRD HYPOTHESIS",
     ):
         assert stale not in text
+
+
+def test_hot_reload_schema_guard_discards_only_stale_flow_objects() -> None:
+    app = AppTest.from_file(APP, default_timeout=20)
+    app.session_state["invoiceagent-session-schema"] = "old-contract-build"
+    app.session_state["eval-document-analysis"] = object()
+    app.session_state["top-route"] = "Guided demo"
+    app.run()
+
+    assert not app.exception
+    assert "Scan the vendor invoice" in page_text(app)
+    assert app.radio(key="top-route").value == "Guided demo"
+    assert "eval-document-review-choice" not in {item.key for item in app.radio}
+
+
+def test_receipt_in_invoice_slot_stops_with_friendly_message() -> None:
+    from tests.test_procure_ui_adapters import analyzed_document
+    import procureagent.ui_adapters as adapters
+    from procureagent.ocr import TesseractOCR, ingest_image
+
+    invoice_analysis = analyzed_document()
+    receipt_path = Path(__file__).resolve().parents[1] / (
+        "data/procureagent/assets/fresh_farms_payment_receipt.png"
+    )
+    receipt_image = ingest_image(
+        receipt_path.read_bytes(), original_filename=receipt_path.name
+    )
+    receipt_ocr = TesseractOCR().run(receipt_image)
+    assert "PAYMENT RECEIPT" in receipt_ocr.raw_text.upper()
+    assert "PAID IN FULL" in receipt_ocr.raw_text.upper()
+    receipt_analysis = replace(
+        invoice_analysis,
+        ocr=receipt_ocr,
+    )
+    with patch.object(adapters, "analyze_invoice_upload", return_value=receipt_analysis):
+        app = boot()
+        app.selectbox(key="eval-supplier").set_value("Fresh Farms").run()
+        app.button(key="eval-run-document-adapter").click().run()
+
+    assert not app.exception
+    assert (
+        "This appears to be a payment receipt—upload the supplier invoice first."
+        in page_text(app)
+    )
+    assert "STOPPED SAFELY · receipt detected in invoice step" in page_text(app)
+    assert "eval-document-review-choice" not in {item.key for item in app.radio}
+    assert app.button(key="eval-run-document-adapter")
+
+
+def test_bundled_invoice_is_not_misclassified_as_receipt() -> None:
+    from tests.test_procure_ui_adapters import analyzed_document
+    import procureagent.ui_adapters as adapters
+    from procureagent.ocr import TesseractOCR, ingest_image
+
+    invoice_path = Path(__file__).resolve().parents[1] / (
+        "data/procureagent/assets/fresh_farms_invoice.png"
+    )
+    invoice_image = ingest_image(invoice_path.read_bytes(), original_filename=invoice_path.name)
+    invoice_ocr = TesseractOCR().run(invoice_image)
+    analysis = replace(analyzed_document(), ocr=invoice_ocr)
+
+    with patch.object(adapters, "analyze_invoice_upload", return_value=analysis):
+        app = boot()
+        app.selectbox(key="eval-supplier").set_value("Fresh Farms").run()
+        app.button(key="eval-run-document-adapter").click().run()
+
+    assert not app.exception
+    assert "This appears to be a payment receipt" not in page_text(app)
+    assert app.radio(key="eval-document-review-choice")
 
 
 def test_mocked_guided_flow_keeps_every_explicit_gate_and_no_second_cash_hit() -> None:
@@ -207,9 +297,7 @@ def test_mocked_guided_flow_keeps_every_explicit_gate_and_no_second_cash_hit() -
         # Use a clean AppTest tree per screen because Streamlit 1.32 retains
         # removed widget nodes after an internal rerun. Session values are the
         # actual immutable objects produced by the preceding screen.
-        review = AppTest.from_file(APP, default_timeout=20)
-        review.session_state["eval-document-analysis"] = analysis
-        review.run()
+        review = boot_with_flow(**{"eval-document-analysis": analysis})
         review.radio(key="eval-document-review-choice").set_value(
             "Confirm the displayed invoice number"
         ).run()
@@ -221,11 +309,13 @@ def test_mocked_guided_flow_keeps_every_explicit_gate_and_no_second_cash_hit() -
         assert "Exact invoice found" in page_text(review)
         assert "Accounts Payable" in page_text(review)
 
-        approve = AppTest.from_file(APP, default_timeout=20)
-        approve.session_state["eval-document-analysis"] = analysis
-        approve.session_state["eval-human-decision"] = human
-        approve.session_state["eval-prepared"] = prepared
-        approve.run()
+        approve = boot_with_flow(
+            **{
+                "eval-document-analysis": analysis,
+                "eval-human-decision": human,
+                "eval-prepared": prepared,
+            }
+        )
         assert not approve.exception
         assert approve.checkbox(key="eval-operator-confirmation").value is False
         assert approve.button(key="eval-approve-batch").disabled
@@ -238,25 +328,78 @@ def test_mocked_guided_flow_keeps_every_explicit_gate_and_no_second_cash_hit() -
         assert "Credit" in page_text(approve)
         assert "does not post this entry or deduct cash a second time" in page_text(approve)
 
-        proof = AppTest.from_file(APP, default_timeout=20)
-        proof.session_state["eval-document-analysis"] = analysis
-        proof.session_state["eval-human-decision"] = human
-        proof.session_state["eval-prepared"] = prepared
-        proof.session_state["eval-simulation"] = simulation
-        proof.run()
+        proof = boot_with_flow(
+            **{
+                "eval-document-analysis": analysis,
+                "eval-human-decision": human,
+                "eval-prepared": prepared,
+                "eval-simulation": simulation,
+            }
+        )
         assert not proof.exception
         proof.button(key="eval-run-receipt-adapter").click().run()
         assert not proof.exception
         assert "Exact payment-proof check" in page_text(proof)
         assert "Amount · receipt field rule" in page_text(proof)
+        assert "RL-ready evaluation signal · no policy/model was trained" in page_text(proof)
+        assert "VERIFIED_FULL_MATCH · reward 10.0 · action ACCEPT_MATCH" in page_text(proof)
         assert proof.checkbox(key="eval-proof-confirmation").value is False
         assert proof.button(key="eval-confirm-payment").disabled
+        assert "eval-view-ap-history" not in {button.key for button in proof.button}
         proof.checkbox(key="eval-proof-confirmation").check().run()
         assert not proof.button(key="eval-confirm-payment").disabled
         proof.button(key="eval-confirm-payment").click().run()
         assert not proof.exception
-        assert "PAID_CONFIRMED in the simulated AP ledger" in page_text(proof)
+        assert "PAID_CONFIRMED in the simulated ledger" in page_text(proof)
         assert metric_values(proof, "Second cash deduction") == ["$0.00"]
         assert proof.button(key="eval-confirm-payment").disabled
         assert proof.button(key="eval-run-receipt-adapter").disabled
         assert proof.radio(key="eval-receipt-source").disabled
+        assert not proof.tabs
+        history_button = proof.button(key="eval-view-ap-history")
+        assert history_button.label == "Done — view AP history"
+
+        history_button.click().run()
+        assert not proof.exception
+        assert len(proof.tabs) == 3
+        assert [tab.label for tab in proof.tabs] == [
+            "Open invoices (2)",
+            "Paid · awaiting proof (1)",
+            "Completed (1)",
+        ]
+
+        history_text = page_text(proof)
+        for phrase in (
+            "PackRight",
+            "PR-15007",
+            "OPEN · DEFER",
+            "CleanPro",
+            "CP-70019",
+            "OPEN · VERIFY",
+            "Prime Foods",
+            "PF-25031",
+            "PAID · AWAITING PROOF",
+            "simulated_payment_approved",
+            "Fresh Farms",
+            "FF-10482",
+            "COMPLETED · PROOF MATCHED",
+            "paid_confirmed",
+            "Auditable Fresh Farms journal component",
+            "Accounts Payable — Fresh Farms",
+            "RCPT-FF-10482",
+            "2026-08-30",
+            "synthetic_fixture_replay",
+            "Receipt confirmation cash impact: $0.00",
+            "Second cash hit: NO",
+            "not full Net Working Capital (NWC)",
+            "Accounts Receivable",
+            "inventory valuation",
+            "Accounting interpretation of the isolated simulated transition",
+            "Accounts Payable — Prime Foods",
+            "balanced batch $4,000.00",
+        ):
+            assert phrase in history_text
+        assert metric_values(proof, "Cash after batch") == ["$1,000.00"]
+        assert metric_values(proof, "Remaining open AP") == ["$2,200.00"]
+        assert metric_values(proof, "Paid · awaiting proof") == ["$2,500.00"]
+        assert metric_values(proof, "Completed invoices") == ["1"]

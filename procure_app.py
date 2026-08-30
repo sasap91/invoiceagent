@@ -1,14 +1,15 @@
-"""ProcureAgent's controlled Streamlit demo and recording surface.
+"""InvoiceAgent's controlled Streamlit demo and recording surface.
 
 Run with: ``streamlit run procure_app.py``.
 
-The overview executes dependency-light deterministic P0 code. OCR and Ryan's
+The overview executes dependency-light deterministic P0 code. OCR and the LayoutLMv3
 local model execute only after the Guided demo document button; simulation and AP
 closure each require their own later operator click.
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import html
 import inspect
@@ -36,7 +37,9 @@ from demo.procure_scenarios import (  # noqa: E402
 )
 from procureagent.contracts import (  # noqa: E402
     DocumentReviewDecision,
+    InvoicePaymentStatus,
     PaymentProofSource,
+    ProcurementAction,
     VerifierResult,
 )
 from procureagent.ui_adapters import (  # noqa: E402
@@ -49,6 +52,10 @@ from procureagent.ui_adapters import (  # noqa: E402
     record_human_identity_decision,
 )
 from procureagent.router_lab import run_router_lab  # noqa: E402
+from procureagent.receipt_reward import (  # noqa: E402
+    ReceiptMatchAction,
+    score_receipt_match,
+)
 from procureagent.token_labels import (  # noqa: E402
     TokenLabel,
     label_invoice_tokens,
@@ -63,10 +70,11 @@ INVOICE_PATH = ASSET_DIR / "fresh_farms_invoice.png"
 RECEIPT_PATH = ASSET_DIR / "fresh_farms_payment_receipt.png"
 MODEL_SMOKE_PATH = EVAL_DIR / "model_smoke_v1.json"
 RECEIPT_PROVENANCE_PATH = ASSET_DIR / "receipt_provenance.json"
+RESTAURANT_HERO_PATH = ASSET_DIR / "invoiceagent-restaurant-hero.jpg"
 
 
 st.set_page_config(
-    page_title="ProcureAgent · Guided accounts payable demo",
+    page_title="InvoiceAgent · Invoice-to-receipt demo",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -74,19 +82,21 @@ st.set_page_config(
 
 CSS = """
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Lora:wght@500;600;700&family=Raleway:wght@400;500;600;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@400;500;600;700&display=swap');
 
   :root {
-    --pa-bg:#f5f5f0;
+    --pa-bg:#f8f7f3;
     --pa-surface:#ffffff;
-    --pa-surface-subtle:#f6f7f5;
-    --pa-ink:#102a2a;
-    --pa-muted:#4c635f;
-    --pa-line:#dce4df;
-    --pa-line-strong:#bdcbc4;
-    --pa-accent:#08778a;
-    --pa-accent-dark:#075c6a;
-    --pa-accent-soft:#e4f3f5;
+    --pa-surface-subtle:#f5f4ef;
+    --pa-ink:#183029;
+    --pa-muted:#52645f;
+    --pa-line:#dce2dc;
+    --pa-line-strong:#bac8c0;
+    --pa-accent:#a6421f;
+    --pa-accent-dark:#78301b;
+    --pa-accent-soft:#fff0e8;
+    --pa-brand:#153f35;
+    --pa-proof:#08778a;
     --pa-success:#176b52;
     --pa-success-soft:#e7f4ee;
     --pa-warning:#8b5a12;
@@ -107,35 +117,57 @@ CSS = """
     --pa-space-6:2rem;
   }
   html { scroll-behavior:smooth; }
-  body, .stApp, [class*="css"] { font-family:'Raleway', sans-serif; }
+  body, .stApp, [class*="css"] { font-family:'Manrope', sans-serif; }
   .stApp { background:var(--pa-bg); color:var(--pa-ink); }
   [data-testid="stSidebar"] { background:#edf2ee; border-right:1px solid var(--pa-line); }
   [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color:var(--pa-muted); }
   [data-testid="stHeader"] { display:none; }
   .block-container { max-width:1180px; padding-top:1.45rem; padding-bottom:4rem; }
-  h1,h2,h3,h4,h5 { color:var(--pa-ink); font-family:'Lora', serif; letter-spacing:-.025em; text-wrap:balance; }
+  h1,h2,h3,h4,h5 { color:var(--pa-ink); font-family:'Fraunces', serif; letter-spacing:-.025em; text-wrap:balance; }
   p, li { line-height:1.58; }
   a { color:var(--pa-accent-dark); text-underline-offset:3px; }
 
-  .pa-hero { position:relative; overflow:hidden; padding:clamp(1.4rem,4vw,2.35rem); border-radius:var(--pa-radius-lg);
-    border:1px solid var(--pa-line); background:var(--pa-surface); box-shadow:var(--pa-shadow-md); margin-bottom:var(--pa-space-4); }
-  .pa-hero:before { content:""; position:absolute; inset:0 auto 0 0; width:7px; background:var(--pa-accent); }
-  .pa-hero:after { content:""; position:absolute; width:190px; height:190px; border-radius:46% 54% 64% 36%;
-    background:#d9ece7; right:-72px; top:-103px; transform:rotate(18deg); opacity:.72; }
+  .pa-brandbar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:0 0 .75rem;
+    padding:.35rem .1rem; }
+  .pa-wordmark { display:flex; align-items:center; gap:.7rem; color:var(--pa-brand); font-weight:800; letter-spacing:-.025em; }
+  .pa-monogram { display:grid; place-items:center; width:2.2rem; height:2.2rem; border-radius:9px; background:var(--pa-brand);
+    color:#fff; font-family:'Fraunces',serif; font-size:.88rem; letter-spacing:-.03em; }
+  .pa-brandbar small { color:var(--pa-muted); text-align:right; line-height:1.35; }
+  .pa-byline { color:var(--pa-accent-dark); font-size:.68rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+  .pa-hero { position:relative; overflow:hidden; padding:clamp(1.25rem,3vw,1.85rem); border-radius:var(--pa-radius-lg);
+    border:1px solid var(--pa-line); border-left:7px solid var(--pa-accent); background:var(--pa-surface); margin-bottom:var(--pa-space-4); }
+  .pa-hero--visual { min-height:330px; display:flex; align-items:center; background-image:
+    linear-gradient(90deg, rgba(248,247,243,.99) 0%, rgba(248,247,243,.96) 36%, rgba(248,247,243,.7) 57%, rgba(248,247,243,.08) 78%),
+    var(--pa-hero-image); background-size:cover; background-position:center; }
+  .pa-hero-copy { position:relative; z-index:1; max-width:58%; }
   .pa-kicker { color:var(--pa-accent-dark); font-weight:700; letter-spacing:.12em; text-transform:uppercase; font-size:.72rem; }
-  .pa-hero h1 { max-width:18ch; font-size:clamp(2rem,5vw,3.75rem); line-height:1.02; margin:.4rem 0 .65rem; }
+  .pa-hero h1 { max-width:24ch; font-size:clamp(2rem,4vw,3.1rem); line-height:1.02; margin:.35rem 0 .55rem; }
   .pa-hero p { color:var(--pa-muted); max-width:740px; font-size:1.04rem; line-height:1.58; margin:0; }
-  .pa-badge { display:inline-flex; align-items:center; margin-top:1rem; border-radius:999px; padding:.42rem .72rem;
-    background:var(--pa-accent-soft); color:var(--pa-accent-dark); font-weight:700; font-size:.75rem; letter-spacing:.035em; }
+  .pa-badge { display:inline-flex; align-items:center; margin-top:1rem; border-radius:999px; padding:.5rem .78rem;
+    border:1px solid #e8c3b3; background:var(--pa-accent-soft); color:var(--pa-accent-dark); font-weight:700; font-size:.75rem; letter-spacing:.015em; }
+  .pa-hero-note { display:block; margin-top:.65rem; color:var(--pa-muted); font-size:.64rem; line-height:1.4; }
   .pa-section { color:var(--pa-accent-dark); font-size:.7rem; font-weight:700; letter-spacing:.12em;
     text-transform:uppercase; margin:.25rem 0; }
 
-  .pa-trust-strip { position:static; display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
+  .pa-trust-strip { position:static; display:grid; grid-template-columns:repeat(4,minmax(0,1fr));
     gap:1px; margin:.7rem 0 1rem; border:1px solid var(--pa-line-strong); border-radius:var(--pa-radius-md);
     overflow:hidden; background:var(--pa-line); box-shadow:var(--pa-shadow-sm); }
   .pa-trust-item { background:#f8faf8; padding:.72rem .85rem; }
   .pa-trust-item b { display:block; color:var(--pa-ink); font-size:.8rem; }
   .pa-trust-item span { color:var(--pa-muted); font-size:.72rem; }
+
+  .pa-tech-line { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1px; margin:.9rem 0 1.15rem;
+    border:1px solid var(--pa-line-strong); border-radius:var(--pa-radius-md); overflow:hidden; background:var(--pa-line); }
+  .pa-tech-item { min-width:0; padding:.82rem .9rem; background:var(--pa-surface-subtle); }
+  .pa-tech-item span { display:block; color:var(--pa-accent-dark); font-size:.64rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+  .pa-tech-item b { display:block; color:var(--pa-ink); margin:.18rem 0; font-size:.82rem; }
+  .pa-tech-item small { display:block; color:var(--pa-muted); line-height:1.35; font-size:.68rem; }
+
+  .pa-reward { margin:.9rem 0; padding:1rem 1.05rem; border:1px solid #b5d8ca; border-left:5px solid var(--pa-success);
+    border-radius:var(--pa-radius-md); background:var(--pa-success-soft); }
+  .pa-reward span { display:block; color:var(--pa-success); font-size:.65rem; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+  .pa-reward b { display:block; margin:.24rem 0; color:var(--pa-ink); font-size:.95rem; }
+  .pa-reward p { margin:.15rem 0 0; color:var(--pa-muted); font-size:.76rem; }
 
   .stApp .pa-progress { display:grid !important; width:100% !important; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.55rem; list-style:none;
     margin:0 0 1rem; padding:0; }
@@ -148,7 +180,7 @@ CSS = """
   .pa-progress li.done { background:var(--pa-success-soft); border-color:#a9cdbf; color:var(--pa-success); }
   .pa-progress li.done .step-no { background:var(--pa-success); color:#fff; border-color:var(--pa-success); }
   .pa-progress li.current { border:2px solid var(--pa-accent); padding-top:calc(.72rem - 1px); padding-bottom:calc(.72rem - 1px);
-    background:var(--pa-accent-soft); color:var(--pa-accent-dark); box-shadow:0 0 0 3px rgba(8,119,138,.08); }
+    background:var(--pa-accent-soft); color:var(--pa-accent-dark); box-shadow:0 0 0 3px rgba(166,66,31,.08); }
   .pa-progress li.current .step-no { background:var(--pa-accent); border-color:var(--pa-accent); color:#fff; }
 
   .pa-step-panel { margin:0 0 1.25rem; padding:clamp(1rem,3vw,1.65rem); background:var(--pa-surface);
@@ -210,7 +242,7 @@ CSS = """
   .pa-decision { display:grid; grid-template-columns:1.15fr .85fr; gap:1rem; margin:1rem 0; }
   .pa-decision-card { padding:1rem; border:1px solid var(--pa-line); border-radius:var(--pa-radius-md); background:var(--pa-surface-subtle); }
   .pa-decision-card .label { color:var(--pa-muted); font-size:.68rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
-  .pa-decision-card strong { display:block; margin:.3rem 0; color:var(--pa-ink); font-family:'Lora',serif; font-size:1.55rem; }
+  .pa-decision-card strong { display:block; margin:.3rem 0; color:var(--pa-ink); font-family:'Fraunces',serif; font-size:1.55rem; }
   .pa-decision-card p { color:var(--pa-muted); font-size:.8rem; margin:.2rem 0 0; }
 
   .pa-journal { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin:1rem 0;
@@ -218,8 +250,27 @@ CSS = """
   .pa-journal-entry { background:var(--pa-surface); padding:1rem; }
   .pa-journal-entry span { color:var(--pa-muted); text-transform:uppercase; letter-spacing:.1em; font-size:.65rem; font-weight:700; }
   .pa-journal-entry b { display:block; color:var(--pa-ink); font-size:1rem; margin:.35rem 0; }
-  .pa-journal-entry strong { color:var(--pa-accent-dark); font-family:'Lora',serif; font-size:1.4rem; }
+  .pa-journal-entry strong { color:var(--pa-accent-dark); font-family:'Fraunces',serif; font-size:1.4rem; }
   .pa-journal-note { grid-column:1/-1; background:#f3f7f4; padding:.75rem 1rem; color:var(--pa-muted); font-size:.78rem; }
+
+  .pa-history-head { margin:1.1rem 0 .85rem; padding:1.15rem 1.25rem; border-radius:var(--pa-radius-lg);
+    border:1px solid #a9cdbf; border-left:6px solid var(--pa-success); background:var(--pa-success-soft); }
+  .pa-history-head span { color:var(--pa-success); font-size:.66rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+  .pa-history-head h2 { margin:.28rem 0 .25rem; font-size:clamp(1.55rem,3vw,2.2rem); }
+  .pa-history-head p { margin:0; color:var(--pa-muted); max-width:72ch; }
+  .pa-ledger-list { display:grid; gap:.55rem; margin:.65rem 0 1rem; }
+  .pa-ledger-row { display:grid; grid-template-columns:1.25fr .9fr .8fr 1fr; align-items:center; gap:.8rem;
+    padding:.85rem .95rem; border:1px solid var(--pa-line); border-radius:var(--pa-radius-sm); background:var(--pa-surface); }
+  .pa-ledger-row b { display:block; color:var(--pa-ink); }
+  .pa-ledger-row small { display:block; margin-top:.12rem; color:var(--pa-muted); line-height:1.35; }
+  .pa-ledger-amount { color:var(--pa-ink); font-weight:800; font-variant-numeric:tabular-nums; }
+  .pa-ledger-status { justify-self:end; padding:.35rem .52rem; border-radius:999px; font-size:.62rem; font-weight:800;
+    letter-spacing:.04em; text-transform:uppercase; text-align:center; }
+  .pa-ledger-status.open { color:var(--pa-warning); background:var(--pa-warning-soft); }
+  .pa-ledger-status.awaiting { color:var(--pa-accent-dark); background:var(--pa-accent-soft); }
+  .pa-ledger-status.completed { color:var(--pa-success); background:var(--pa-success-soft); }
+  .pa-history-empty { padding:1rem; border:1px dashed var(--pa-line-strong); border-radius:var(--pa-radius-sm);
+    color:var(--pa-muted); background:var(--pa-surface-subtle); }
 
   .pa-batch { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.72rem; margin:.9rem 0 1.2rem; }
   .pa-batch-card { background:var(--pa-surface); border:1px solid var(--pa-line); border-top:4px solid #9aaaa3;
@@ -244,7 +295,7 @@ CSS = """
   .pa-table tr:last-child td { border-bottom:0; }
 
   [data-testid="stButton"] button, [data-testid="stDownloadButton"] button,
-  [data-testid="stFileUploaderDropzone"] button { min-height:44px; border-radius:10px; font-family:'Raleway',sans-serif;
+  [data-testid="stFileUploaderDropzone"] button { min-height:44px; border-radius:10px; font-family:'Manrope',sans-serif;
     font-weight:700; transition:background-color .18s ease,border-color .18s ease,box-shadow .18s ease,transform .18s ease; cursor:pointer; }
   [data-testid="stButton"] button[kind="primary"] { background:var(--pa-accent); color:#fff; border-color:var(--pa-accent); }
   [data-testid="stButton"] button[kind="primary"]:hover { background:var(--pa-accent-dark); border-color:var(--pa-accent-dark); }
@@ -253,7 +304,7 @@ CSS = """
   [data-baseweb="radio"] label, [data-baseweb="checkbox"] label { min-height:44px; cursor:pointer; }
   input, textarea, [data-baseweb="select"] > div { min-height:44px; }
   button:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
-    outline:3px solid rgba(8,119,138,.48) !important; outline-offset:2px !important; box-shadow:none !important; }
+    outline:3px solid rgba(166,66,31,.48) !important; outline-offset:2px !important; box-shadow:none !important; }
   [data-testid="stExpander"] { border:1px solid var(--pa-line); border-radius:var(--pa-radius-sm); background:rgba(255,255,255,.7); }
   [data-testid="stExpander"] summary { min-height:44px; cursor:pointer; }
 
@@ -262,6 +313,7 @@ CSS = """
   }
   @media (max-width:900px) {
     .pa-grid,.pa-decision { grid-template-columns:1fr; }
+    .pa-tech-line { grid-template-columns:1fr; }
     .pa-batch { grid-template-columns:repeat(2,minmax(0,1fr)); }
     .pa-progress { gap:.35rem; }
     .pa-progress li { padding:.62rem .45rem .62rem 2.15rem; }
@@ -270,7 +322,18 @@ CSS = """
   }
   @media (max-width:640px) {
     .block-container { padding-left:1rem; padding-right:1rem; padding-top:1rem; }
-    .pa-trust-strip { position:static; grid-template-columns:1fr; }
+    .pa-trust-strip { position:static; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .pa-trust-item { padding:.58rem .62rem; }
+    .pa-brandbar { align-items:flex-start; }
+    .pa-brandbar small { max-width:11rem; font-size:.67rem; }
+    .pa-hero { padding:1.05rem 1.15rem; border-left-width:5px; }
+    .pa-hero--visual { min-height:350px; align-items:flex-end; background-image:
+      linear-gradient(180deg, rgba(248,247,243,.18) 0%, rgba(248,247,243,.82) 43%, rgba(248,247,243,.99) 72%),
+      var(--pa-hero-image); background-position:68% center; }
+    .pa-hero-copy { max-width:100%; }
+    .pa-hero h1 { font-size:2rem; line-height:1.04; }
+    .pa-hero p { font-size:1rem; line-height:1.5; }
+    .pa-badge { border-radius:12px; font-size:.68rem; }
     .pa-progress { grid-template-columns:repeat(4,1fr); }
     .pa-progress li { min-height:3rem; padding:.55rem .3rem; text-align:center; }
     .pa-progress .step-no { position:static; margin:0 auto .2rem; }
@@ -278,6 +341,8 @@ CSS = """
     .pa-step-head { flex-direction:column; }
     .pa-journal,.pa-batch,.pa-facts { grid-template-columns:1fr; }
     .pa-journal-note { grid-column:auto; }
+    .pa-ledger-row { grid-template-columns:1fr 1fr; }
+    .pa-ledger-status { justify-self:start; }
   }
   @media (max-width:375px) {
     .pa-progress b { font-size:.56rem; }
@@ -308,6 +373,23 @@ GUIDED_WIDGET_KEYS = (
     "eval-proof-confirmation",
 )
 
+# Streamlit preserves Python objects across source hot reloads. Contract classes
+# can therefore look identical while failing ``isinstance`` after a class was
+# redefined. Bump this value whenever workflow object schemas change; unrelated
+# preferences such as the selected route remain untouched.
+APP_SESSION_SCHEMA = "invoiceagent-guided-v2-20260830"
+if st.session_state.get("invoiceagent-session-schema") != APP_SESSION_SCHEMA:
+    for stale_key in (
+        *FLOW_KEYS,
+        *GUIDED_WIDGET_KEYS,
+        "eval-document-input-key",
+        "eval-receipt-input-key",
+        "eval-document-kind-error",
+        "eval-ap-history-visible",
+    ):
+        st.session_state.pop(stale_key, None)
+    st.session_state["invoiceagent-session-schema"] = APP_SESSION_SCHEMA
+
 ROUTES = ("Guided demo", "Overview", "Evidence & methods")
 GITHUB_BLOB = "https://github.com/sasap91/invoiceagent/blob/main"
 
@@ -318,10 +400,10 @@ REVIEW_DECISIONS = {
 }
 
 STEP_META = (
-    (1, "Read invoice", "OCR + model"),
-    (2, "Confirm & plan", "Human review"),
-    (3, "Approve simulation", "Operator gate"),
-    (4, "Match receipt", "Close with proof"),
+    (1, "Scan invoice", "Tesseract + model"),
+    (2, "Verify fields", "Human review"),
+    (3, "Simulate payment", "Dr AP · Cr Cash"),
+    (4, "Match receipt", "Close the loop"),
 )
 
 RECEIPT_FIELD_LABELS = {
@@ -371,6 +453,19 @@ def read_json(path: Path) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def looks_like_payment_receipt(ocr: Any) -> bool:
+    """Return true only when at least two strong receipt markers are present."""
+
+    raw_text = str(getattr(ocr, "raw_text", "") or "")
+    if not raw_text:
+        raw_text = " ".join(
+            str(getattr(word, "text", "")) for word in getattr(ocr, "words", ())
+        )
+    normalized = " ".join(raw_text.upper().split())
+    markers = ("PAYMENT RECEIPT", "RECEIPT ID", "PAID IN FULL")
+    return sum(marker in normalized for marker in markers) >= 2
+
+
 def render_responsive_image(image_bytes: bytes, *, caption: str) -> None:
     """Use the image-width API supported by both CI and model environments."""
 
@@ -379,6 +474,7 @@ def render_responsive_image(image_bytes: bytes, *, caption: str) -> None:
 
 
 def clear_flow(after: str | None = None) -> None:
+    st.session_state.pop("eval-ap-history-visible", None)
     start = 0 if after is None else FLOW_KEYS.index(after) + 1
     for key in FLOW_KEYS[start:]:
         st.session_state.pop(key, None)
@@ -392,6 +488,8 @@ def reset_guided_flow() -> None:
         *GUIDED_WIDGET_KEYS,
         "eval-document-input-key",
         "eval-receipt-input-key",
+        "eval-document-kind-error",
+        "eval-ap-history-visible",
     ):
         st.session_state.pop(key, None)
 
@@ -429,13 +527,54 @@ def render_trust_strip() -> None:
     st.markdown(
         """
         <aside class="pa-trust-strip" aria-label="Demo safety boundaries">
-          <div class="pa-trust-item"><b>Simulation only</b><span>No real payment is sent</span></div>
-          <div class="pa-trust-item"><b>Human approval required</b><span>No invoice is accepted silently</span></div>
-          <div class="pa-trust-item"><b>No bank or ERP connected</b><span>All records stay inside this demo</span></div>
+          <div class="pa-trust-item"><b>Synthetic documents</b><span>No restaurant records are used</span></div>
+          <div class="pa-trust-item"><b>No affiliation</b><span>Sugar &amp; Spice is the demo setting only</span></div>
+          <div class="pa-trust-item"><b>Human controlled</b><span>Review before every state change</span></div>
+          <div class="pa-trust-item"><b>Simulation only</b><span>No bank or ERP is connected</span></div>
         </aside>
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_ai_lineup() -> None:
+    """Show the narrow AI boundary before anyone runs the invoice reader."""
+
+    st.markdown(
+        """
+        <div class="pa-tech-line" aria-label="What is AI and what is deterministic">
+          <div class="pa-tech-item"><span>Local OCR</span><b>Tesseract reads every word</b>
+          <small>Text, confidence and bounding boxes stay in this app runtime.</small></div>
+          <div class="pa-tech-item"><span>Small local AI</span><b>LayoutLMv3 + LoRA · adapted by Ryan</b>
+          <small>The supervised specialist identifies the invoice number only.</small></div>
+          <div class="pa-tech-item"><span>Deterministic checks</span><b>Amount and receipt matching</b>
+          <small>Rules verify exact fields; they are not presented as model predictions.</small></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_reward_signal(proof_gate: Any) -> Any:
+    """Render the tested reward adapter without implying online model training."""
+
+    action = (
+        ReceiptMatchAction.ACCEPT_MATCH
+        if proof_gate.closes_obligation
+        else ReceiptMatchAction.REQUEST_REVIEW
+    )
+    result = score_receipt_match(proof_gate, action)
+    explanation = (
+        "This exact outcome can train a future router to choose accept, retry OCR, or human "
+        "review. The supervised LayoutLMv3 invoice-number specialist was not trained or updated here."
+    )
+    st.markdown(
+        f'<aside class="pa-reward"><span>RL-ready evaluation signal · no policy/model was trained</span>'
+        f'<b>{esc(result.outcome)} · reward {esc(result.reward)} · action {esc(result.action.value)}</b>'
+        f'<p>{esc(explanation)}</p></aside>',
+        unsafe_allow_html=True,
+    )
+    return result
 
 
 def render_step_header(number: int, title: str, description: str, status: str) -> None:
@@ -608,6 +747,255 @@ def render_table(rows: list[dict[str, Any]]) -> None:
     )
 
 
+def ap_history_buckets(confirmed: Any) -> dict[str, tuple[Any, ...]]:
+    """Group the confirmed restaurant state by its authoritative payment enum."""
+
+    buckets: dict[str, list[Any]] = {
+        "open": [],
+        "awaiting_proof": [],
+        "completed": [],
+    }
+    for invoice in confirmed.state_after.invoices:
+        if invoice.payment_status is InvoicePaymentStatus.UNPAID:
+            buckets["open"].append(invoice)
+        elif invoice.payment_status is InvoicePaymentStatus.SIMULATED_PAYMENT_APPROVED:
+            buckets["awaiting_proof"].append(invoice)
+        elif invoice.payment_status is InvoicePaymentStatus.PAID_CONFIRMED:
+            buckets["completed"].append(invoice)
+    return {name: tuple(items) for name, items in buckets.items()}
+
+
+def due_label(days: int) -> str:
+    if days == 0:
+        return "Due today"
+    if days < 0:
+        count = abs(days)
+        return f"{count} day{'s' if count != 1 else ''} overdue"
+    return f"Due in {days} day{'s' if days != 1 else ''}"
+
+
+def render_ap_rows(
+    invoices: tuple[Any, ...],
+    *,
+    names: dict[str, str],
+    actions: dict[tuple[str, str], str],
+    bucket: str,
+) -> None:
+    """Render state-derived AP rows with words as well as status color."""
+
+    if not invoices:
+        st.markdown(
+            '<div class="pa-history-empty">No invoices in this category.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+    status_copy = {
+        "open": lambda invoice: f"OPEN · {actions.get((invoice.supplier_id, invoice.invoice_number), 'REVIEW')}",
+        "awaiting_proof": lambda _invoice: "PAID · AWAITING PROOF",
+        "completed": lambda _invoice: "COMPLETED · PROOF MATCHED",
+    }
+    status_class = {
+        "open": "open",
+        "awaiting_proof": "awaiting",
+        "completed": "completed",
+    }[bucket]
+    rows = []
+    for invoice in invoices:
+        status = status_copy[bucket](invoice)
+        rows.append(
+            '<div class="pa-ledger-row">'
+            f'<div><b>{esc(names.get(invoice.supplier_id, invoice.supplier_id))}</b>'
+            f'<small>{esc(invoice.invoice_number)} · {esc(invoice.category.title())}</small></div>'
+            f'<div><b>{esc(due_label(invoice.due_in_days))}</b>'
+            f'<small>{esc(invoice.payment_status.value)}</small></div>'
+            f'<div class="pa-ledger-amount">{esc(format_minor(invoice.amount_minor))}</div>'
+            f'<div class="pa-ledger-status {status_class}">{esc(status)}</div></div>'
+        )
+    st.markdown(
+        f'<div class="pa-ledger-list" aria-label="{esc(bucket.replace("_", " "))} invoices">'
+        f'{"".join(rows)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_ap_history_dashboard(confirmed: Any) -> None:
+    """Render a read-only AP lifecycle view from the post-proof state."""
+
+    simulation = confirmed.receipt_analysis.simulation
+    scenario = simulation.prepared.scenario
+    state = confirmed.state_after
+    buckets = ap_history_buckets(confirmed)
+    names = {supplier.supplier_id: supplier.display_name for supplier in scenario.suppliers}
+    actions = {
+        (item.supplier_id, item.invoice_number): item.action.value
+        for item in simulation.prepared.batch.recommendations
+    }
+    open_ap_minor = sum(invoice.amount_minor for invoice in buckets["open"])
+    awaiting_minor = sum(
+        invoice.amount_minor for invoice in buckets["awaiting_proof"]
+    )
+
+    st.markdown(
+        '<section class="pa-history-head"><span>Accounts Payable history · state-derived</span>'
+        '<h2>Every supplier bill now has a clear next state.</h2>'
+        '<p>InvoiceAgent separates bills still open, simulated payments waiting for proof, '
+        'and completed payments with an auditable receipt trail.</p></section>',
+        unsafe_allow_html=True,
+    )
+    metrics = st.columns(4)
+    metrics[0].metric("Cash after batch", format_minor(state.cash_minor))
+    metrics[1].metric("Remaining open AP", format_minor(open_ap_minor))
+    metrics[2].metric("Paid · awaiting proof", format_minor(awaiting_minor))
+    metrics[3].metric("Completed invoices", str(len(buckets["completed"])))
+    st.info(
+        "Working-capital support view—not full Net Working Capital (NWC). Accounts "
+        "Receivable, inventory valuation, other current assets, and other current "
+        "liabilities are outside this demo's scope."
+    )
+
+    paid_identities = {
+        (item.supplier_id, item.invoice_number)
+        for item in simulation.approved_batch.batch.recommendations
+        if item.action is ProcurementAction.PAY
+    }
+    paid_components = tuple(
+        invoice
+        for invoice in state.invoices
+        if (invoice.supplier_id, invoice.invoice_number) in paid_identities
+    )
+    batch_total_minor = sum(invoice.amount_minor for invoice in paid_components)
+    with st.expander(
+        "Journal entry interpretation · full simulated batch",
+        expanded=True,
+    ):
+        st.warning(
+            "Accounting interpretation of the isolated simulated transition—not a journal "
+            "posted to a bank, ERP, or general ledger. Both paid invoice components explain "
+            "the batch cash change."
+        )
+        batch_rows = [
+            {
+                "Side": "Debit",
+                "Account": f"Accounts Payable — {names.get(invoice.supplier_id, invoice.supplier_id)}",
+                "Invoice": invoice.invoice_number,
+                "Amount": format_minor(invoice.amount_minor),
+            }
+            for invoice in paid_components
+        ]
+        batch_rows.append(
+            {
+                "Side": "Credit",
+                "Account": "Cash",
+                "Invoice": "Batch total",
+                "Amount": format_minor(batch_total_minor),
+            }
+        )
+        render_table(batch_rows)
+        st.caption(
+            f"Cash {format_minor(simulation.info['cash_before_minor'])} → "
+            f"{format_minor(simulation.info['cash_after_minor'])} · balanced batch "
+            f"{format_minor(batch_total_minor)}."
+        )
+
+    open_tab, awaiting_tab, completed_tab = st.tabs(
+        (
+            f"Open invoices ({len(buckets['open'])})",
+            f"Paid · awaiting proof ({len(buckets['awaiting_proof'])})",
+            f"Completed ({len(buckets['completed'])})",
+        )
+    )
+    with open_tab:
+        st.caption("Still unpaid after the simulated batch; no receipt can close these yet.")
+        render_ap_rows(buckets["open"], names=names, actions=actions, bucket="open")
+    with awaiting_tab:
+        st.caption(
+            "Payment was simulated, but exact receipt proof has not been attached. The AP "
+            "record remains SIMULATED_PAYMENT_APPROVED."
+        )
+        render_ap_rows(
+            buckets["awaiting_proof"],
+            names=names,
+            actions=actions,
+            bucket="awaiting_proof",
+        )
+    with completed_tab:
+        st.caption("Verified receipt proof completed this AP lifecycle without another cash entry.")
+        render_ap_rows(
+            buckets["completed"],
+            names=names,
+            actions=actions,
+            bucket="completed",
+        )
+        proof = confirmed.receipt_analysis.proof_gate.proof
+        if proof is None:
+            st.error("Completed history stopped safely: verified receipt proof is missing.")
+            return
+        completed_invoice = next(
+            (
+                invoice
+                for invoice in buckets["completed"]
+                if invoice.supplier_id == proof.supplier_id
+                and invoice.invoice_number == proof.invoice_number
+            ),
+            None,
+        )
+        if completed_invoice is None:
+            st.error("Completed history stopped safely: proof does not match a completed invoice.")
+            return
+        completed_name = names.get(
+            completed_invoice.supplier_id, completed_invoice.supplier_id
+        )
+        awaiting_summary = " · ".join(
+            f"{names.get(invoice.supplier_id, invoice.supplier_id)} "
+            f"{format_minor(invoice.amount_minor)}"
+            for invoice in buckets["awaiting_proof"]
+        ) or "none"
+        st.markdown(f"#### Auditable {completed_name} journal component")
+        st.caption(
+            f"This is the {completed_name} component of the earlier "
+            f"{format_minor(batch_total_minor)} simulated batch interpretation; "
+            f"{awaiting_summary} remains Paid · awaiting proof."
+        )
+        render_table(
+            [
+                {
+                    "Entry line": "Debit",
+                    "Account": f"Accounts Payable — {completed_name}",
+                    "Debit": format_minor(completed_invoice.amount_minor),
+                    "Credit": "—",
+                },
+                {
+                    "Entry line": "Credit",
+                    "Account": "Cash",
+                    "Debit": "—",
+                    "Credit": format_minor(completed_invoice.amount_minor),
+                },
+            ]
+        )
+        render_table(
+            [
+                {
+                    "Supplier": names.get(proof.supplier_id, proof.supplier_id),
+                    "Invoice": proof.invoice_number,
+                    "Receipt": proof.receipt_id,
+                    "Proof date": proof.paid_date.isoformat(),
+                    "Source": proof.source.value,
+                }
+            ]
+        )
+        second_cash_hit = confirmed.state_before.cash_minor - confirmed.state_after.cash_minor
+        no_second_hit = second_cash_hit == 0
+        st.success(
+            f"Receipt confirmation cash impact: {format_minor(second_cash_hit)}. "
+            f"Second cash hit: {'NO' if no_second_hit else 'YES'}. The receipt added proof "
+            "and PAID_CONFIRMED status only; it posted no second journal entry."
+        )
+        st.caption(
+            f"Simulation day {simulation.info['day_before']} → {simulation.info['day_after']} · "
+            f"simulation_only={simulation.info['simulation_only']} · state version {state.state_version}."
+        )
+
+
 try:
     OVERVIEW = load_overview_run()
     OVERVIEW_ERROR = None
@@ -680,7 +1068,7 @@ def render_document_evidence() -> None:
     if supplier_id == "unknownco":
         st.error("Fail-closed fixture boundary: UnknownCo never reaches canonical lookup, activates no payable, and is excluded from the $6,200 obligations. This static card did not run C2.")
     else:
-        st.warning("Static stored evidence only. For actual Tesseract + Ryan model evidence, use the Guided demo.")
+        st.warning("Static stored evidence only. For actual Tesseract + LayoutLMv3 evidence, use the Guided demo.")
     left, right = st.columns([1.05, 1])
     with left:
         tokens = " &nbsp; ".join(f"<mark>{esc(token)}</mark>" for token in evidence["evidence_tokens"])
@@ -891,9 +1279,9 @@ def render_document_analysis(analysis: Any) -> None:
             "the frozen score thresholds."
         )
     st.info(
-        "Ryan's local model reads only the invoice number. The highlighted total is a separate "
-        "OCR + anchored-rule candidate; the payment plan still uses the exact Accounts Payable "
-        "record retrieved only after human confirmation."
+        "The small local LayoutLMv3 document specialist reads only the invoice number. The highlighted total "
+        "comes from Tesseract plus a separate anchored rule. The exact Accounts Payable record "
+        "stays locked until a person confirms the invoice identity."
     )
     render_ocr_result(
         analysis.ocr,
@@ -911,27 +1299,27 @@ def render_prepared(prepared: Any) -> None:
         "ok",
     )
     cols = st.columns(4)
-    cols[0].metric("Accounts Payable", format_minor(invoice.amount_minor))
-    cols[1].metric("Inventory left", f"{invoice.inventory_days_remaining} days")
-    cols[2].metric("Due in", f"{invoice.due_in_days} days")
-    cols[3].metric("Supplier importance", invoice.supplier_criticality.value.title())
+    cols[0].metric("Vendor", "Fresh Farms")
+    cols[1].metric("Invoice", invoice.invoice_number)
+    cols[2].metric("Amount due", format_minor(invoice.amount_minor))
+    cols[3].metric("Due in", f"{invoice.due_in_days} days")
     st.caption(
-        "The amount and business context came from exact lookup after human-reviewed identity; "
-        "the invoice-number model did not extract them."
+        "After human review, the exact synthetic Accounts Payable record supplies the amount. "
+        "LayoutLMv3 did not extract the payable amount."
     )
-    st.markdown("#### Today's proposed plan")
-    render_batch_cards(prepared.batch, "verified proposal")
     verification = prepared.verification
     stage_badge(
-        "Plan safety check",
+        "Payment safety check",
         f"{verification.result.value} · {' · '.join(verification.reason_codes)}",
         "stop" if verification.result is VerifierResult.BLOCKED else "review",
     )
     st.caption("Checks passed: " + " · ".join(verification.checks_passed))
-    st.info(
-        "Fresh Farms uses the invoice you reviewed. The other three suppliers use locked "
-        "fixture identities so this four-invoice demo stays reproducible."
-    )
+    with st.expander("Advanced cash-priority policy · optional technical context"):
+        st.caption(
+            "The guided story follows Fresh Farms only. Underneath, the deterministic restaurant-day "
+            "simulator evaluates four locked synthetic bills so its cash constraints remain reproducible."
+        )
+        render_batch_cards(prepared.batch, "verified proposal")
 
 
 def render_simulation(simulation: Any) -> None:
@@ -940,16 +1328,24 @@ def render_simulation(simulation: Any) -> None:
         f"{simulation.approved_batch.operator_decision.decision.value} · day {simulation.info['day_before']}→{simulation.info['day_after']} · simulation_only=True",
         "ok",
     )
+    selected = simulation.prepared.looked_up_invoice
     cols = st.columns(4)
-    cols[0].metric("Cash before", format_minor(simulation.info["cash_before_minor"]))
-    cols[1].metric("Cash after", format_minor(simulation.info["cash_after_minor"]))
-    cols[2].metric("Step reward", str(simulation.reward))
-    cols[3].metric("State version", str(simulation.state_after.state_version))
-    st.write("Simulated as paid: **" + ", ".join(simulation.info["paid_invoice_numbers"]) + "**")
-    st.caption(
-        f"Decision `{simulation.approved_batch.operator_decision.decision_id}` · "
-        "no real money moved."
-    )
+    cols[0].metric("Invoice", selected.invoice_number)
+    cols[1].metric("Payment amount", format_minor(selected.amount_minor))
+    cols[2].metric("AP status", "PAYMENT SIMULATED")
+    cols[3].metric("Next proof", "Receipt")
+    st.success("The Fresh Farms accounting entry is now simulated. No bank payment was sent.")
+    with st.expander("Advanced restaurant-day simulation output"):
+        details = st.columns(4)
+        details[0].metric("Cash before", format_minor(simulation.info["cash_before_minor"]))
+        details[1].metric("Cash after", format_minor(simulation.info["cash_after_minor"]))
+        details[2].metric("Policy reward", str(simulation.reward))
+        details[3].metric("State version", str(simulation.state_after.state_version))
+        st.write("All simulated payments: **" + ", ".join(simulation.info["paid_invoice_numbers"]) + "**")
+        st.caption(
+            f"Decision `{simulation.approved_batch.operator_decision.decision_id}` · "
+            "the policy reward describes the restaurant-day simulator, not receipt matching."
+        )
 
 
 def render_axis_scorecard(analysis: Any | None) -> None:
@@ -980,7 +1376,7 @@ def render_axis_scorecard(analysis: Any | None) -> None:
     )
 
 
-def render_receipt_result(receipt: Any) -> None:
+def render_receipt_result(receipt: Any) -> Any:
     parsed = receipt.parsed
     render_ocr_result(
         receipt.ocr,
@@ -1008,6 +1404,7 @@ def render_receipt_result(receipt: Any) -> None:
         )
     else:
         st.error("The receipt did not pass every exact check. Accounts Payable remains open.")
+    return render_reward_signal(gate)
 
 
 def render_recording_kit() -> None:
@@ -1039,7 +1436,7 @@ def render_code_provenance() -> None:
         if recorded_hash and actual_hash and recorded_hash != actual_hash:
             st.warning("Recorded smoke hash differs from the current bundled PNG; this session's live evidence is authoritative for any recording claim.")
         st.markdown("**Deployment**")
-        st.code("streamlit run procure_app.py\n# or\ndocker build -t procureagent . && docker run -p 8501:8501 procureagent")
+        st.code("streamlit run procure_app.py\n# or\ndocker build -t invoiceagent . && docker run -p 8501:8501 invoiceagent")
         st.caption("Missing Tesseract or model extras fail closed and remain visible in stage output.")
 
 
@@ -1054,7 +1451,8 @@ def render_journal_entry(prepared: Any) -> None:
         '<div class="pa-journal-entry"><span>Credit</span><b>Cash</b>'
         f'<strong>{esc(amount)}</strong><br><small>Asset decreases</small></div>'
         '<div class="pa-journal-note">This entry belongs to the approved simulated payment. '
-        'Receipt confirmation later adds evidence and changes status to PAID_CONFIRMED; '
+        'Debit AP reduces what the restaurant owes; Credit Cash reduces its cash asset. '
+        'Receipt confirmation later adds proof and changes status to PAID_CONFIRMED; '
         'it does not post this entry or deduct cash a second time.</div></div>',
         unsafe_allow_html=True,
     )
@@ -1083,11 +1481,11 @@ def render_completed_summaries(current_step: int) -> None:
         ):
             st.write(
                 f"Exact AP lookup: {format_minor(prepared.looked_up_invoice.amount_minor)} · "
-                f"plan verifier: {prepared.verification.result.value}"
+                f"payment verifier: {prepared.verification.result.value}"
             )
             st.caption(f"Review `{human.review_id}` · lookup was blocked until this decision.")
     if current_step > 3 and simulation is not None:
-        with st.expander("Completed · Operator-approved simulation", expanded=False):
+        with st.expander("Completed · Payment simulated", expanded=False):
             st.write(
                 f"Cash {format_minor(simulation.info['cash_before_minor'])} → "
                 f"{format_minor(simulation.info['cash_after_minor'])} · day "
@@ -1100,14 +1498,16 @@ def render_step_read_invoice() -> None:
     with st.container(border=True):
         render_step_header(
             1,
-            "Read the invoice",
-            "Use the included Fresh Farms sample or upload a PNG/JPEG. Nothing runs until you ask it to.",
+            "Scan the vendor invoice",
+            "Start with the bundled sample or upload a PNG/JPEG. Nothing runs until you ask it to.",
             "Waiting for you",
         )
         st.info(
-            "Accounts Payable is money the business owes a supplier. First, we read only "
-            "the invoice identity—not an instruction to pay."
+            "Sugar & Spice receives a paper bill from Fresh Farms. That bill becomes Accounts "
+            "Payable: money the restaurant owes its vendor. This is a synthetic walkthrough "
+            "with no affiliation to Sugar & Spice and no real business records."
         )
+        render_ai_lineup()
         controls, preview = st.columns([0.82, 1.18])
         with controls:
             source_choice = st.radio(
@@ -1116,12 +1516,12 @@ def render_step_read_invoice() -> None:
                 key="eval-invoice-source",
             )
             supplier_choice = st.selectbox(
-                "Which supplier sent it?",
+                "Confirm the vendor shown on the invoice",
                 ("Fresh Farms",),
                 index=None,
-                placeholder="Choose the supplier",
+                placeholder="Select Fresh Farms",
                 key="eval-supplier",
-                help="This explicit supplier choice is part of the identity safety boundary.",
+                help="A person must confirm the vendor before the demo can activate any payable.",
             )
             supplier_id = "fresh_farms" if supplier_choice == "Fresh Farms" else None
             if source_choice == "Upload my invoice":
@@ -1136,7 +1536,7 @@ def render_step_read_invoice() -> None:
             else:
                 invoice_bytes = read_bytes(INVOICE_PATH)
                 invoice_name = INVOICE_PATH.name
-                st.caption("Included sample: `data/procureagent/assets/fresh_farms_invoice.png`")
+                st.caption("Bundled synthetic file: `data/procureagent/assets/fresh_farms_invoice.png`")
                 st.download_button(
                     "Download sample invoice",
                     invoice_bytes,
@@ -1167,10 +1567,11 @@ def render_step_read_invoice() -> None:
             clear_flow()
             for key in GUIDED_WIDGET_KEYS:
                 st.session_state.pop(key, None)
+            st.session_state.pop("eval-document-kind-error", None)
             st.session_state["eval-document-input-key"] = input_key
 
         run_document = st.button(
-            "Read invoice and find its number",
+            "Scan invoice with Tesseract + LayoutLMv3",
             key="eval-run-document-adapter",
             type="primary",
             disabled=not invoice_bytes or supplier_id is None,
@@ -1178,7 +1579,7 @@ def render_step_read_invoice() -> None:
         )
         if run_document and invoice_bytes and supplier_id is not None:
             clear_flow()
-            with st.spinner("Reading OCR words, token boxes and the local invoice-number model…"):
+            with st.spinner("Tesseract is reading every word; LayoutLMv3 is finding the invoice number…"):
                 try:
                     analysis = analyze_invoice_upload(
                         invoice_bytes,
@@ -1188,9 +1589,20 @@ def render_step_read_invoice() -> None:
                 except Exception as exc:
                     st.error(f"Document pipeline stopped safely: {type(exc).__name__}: {exc}")
                 else:
-                    st.session_state["eval-document-analysis"] = analysis
-                    st.rerun()
-        stage_badge("Invoice pipeline", "NOT RUN · click required", "review")
+                    if looks_like_payment_receipt(analysis.ocr):
+                        st.session_state["eval-document-kind-error"] = (
+                            "This appears to be a payment receipt—upload the supplier invoice first."
+                        )
+                    else:
+                        st.session_state.pop("eval-document-kind-error", None)
+                        st.session_state["eval-document-analysis"] = analysis
+                        st.rerun()
+        kind_error = st.session_state.get("eval-document-kind-error")
+        if kind_error:
+            st.error(kind_error)
+            stage_badge("Invoice reader", "STOPPED SAFELY · receipt detected in invoice step", "stop")
+        else:
+            stage_badge("Invoice reader", "NOT RUN · click required", "review")
         render_technical_evidence(
             sources=(("OCR, model and safety gate", "src/procureagent/ui_adapters.py", 201, 215),),
             answer_key_note=True,
@@ -1201,8 +1613,8 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
     with st.container(border=True):
         render_step_header(
             2,
-            "Confirm the invoice, then build a plan",
-            "Review every token and make an explicit identity decision before any business lookup can run.",
+            "Verify what InvoiceAgent found",
+            "See every OCR token, then confirm, correct, or reject the invoice number before bookkeeping continues.",
             "Human decision required",
         )
         render_document_analysis(analysis)
@@ -1255,7 +1667,7 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
                 )
                 st.session_state["eval-human-decision"] = human
                 if human.may_activate_lookup:
-                    with st.spinner("Looking up the exact AP record and checking today's plan…"):
+                    with st.spinner("Opening the exact synthetic AP record and running the payment safety check…"):
                         st.session_state["eval-prepared"] = prepare_procurement(human)
                     st.rerun()
             except Exception as exc:
@@ -1270,7 +1682,7 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
                 f"{human.decision.value} · lookup blocked · review {human.review_id}",
                 "stop",
             )
-            st.error("This document was rejected. No payable was activated and no plan was changed.")
+            st.error("This document was rejected. No payable was activated and no bookkeeping state changed.")
 
         st.button(
             "Choose a different invoice",
@@ -1306,33 +1718,33 @@ def render_step_approve(prepared: Any) -> None:
     with st.container(border=True):
         render_step_header(
             3,
-            "Approve the simulation",
-            "Inspect the verified plan and accounting effect. The restaurant state remains unchanged until you approve.",
+            "Simulate the payment",
+            "Review the exact bookkeeping entry. The demo ledger stays unchanged until you explicitly approve.",
             "Operator approval required",
         )
         render_prepared(prepared)
-        st.markdown("#### Fresh Farms accounting entry inside this plan")
+        st.markdown("#### What paying Fresh Farms does to the books")
         render_journal_entry(prepared)
         blocked = prepared.verification.result is VerifierResult.BLOCKED
         operator_confirmed = st.checkbox(
-            "I approve this verified batch and understand it advances the demo by one simulated day.",
+            "I approve this verified demo payment run and understand no real money will move.",
             value=False,
             key="eval-operator-confirmation",
             disabled=blocked,
         )
         st.warning(
-            "The plan verifier has run, but nothing has been committed. This approval is "
-            "simulation-only and cannot send a bank payment."
+            "The safety verifier has run, but nothing has been recorded yet. This approval "
+            "changes only the isolated demo ledger and cannot send a bank payment."
         )
         if st.button(
-            "Approve batch and run one simulated day",
+            "Approve and simulate payment",
             key="eval-approve-batch",
             type="primary",
             disabled=blocked or not operator_confirmed,
             use_container_width=True,
         ):
             clear_flow("eval-prepared")
-            with st.spinner("Applying the approved plan to the isolated ProcureGym state…"):
+            with st.spinner("Recording the approved payment in the isolated demo ledger…"):
                 try:
                     simulation = approve_and_simulate(prepared)
                 except Exception as exc:
@@ -1340,7 +1752,7 @@ def render_step_approve(prepared: Any) -> None:
                 else:
                     st.session_state["eval-simulation"] = simulation
                     st.rerun()
-        stage_badge("Operator + simulation", "NOT COMMITTED · restaurant state unchanged", "review")
+        stage_badge("Payment simulation", "NOT RECORDED · demo ledger unchanged", "review")
 
         if st.button("Back to invoice review", key="eval-back-to-review"):
             clear_flow("eval-document-analysis")
@@ -1371,16 +1783,16 @@ def render_step_match_receipt(simulation: Any) -> None:
     with st.container(border=True):
         render_step_header(
             4,
-            "Match the receipt",
-            "Read payment proof, match every field to Fresh Farms, then explicitly close only that demo payable.",
+            "Match the payment receipt",
+            "Scan the proof, compare its invoice number and amount, then close this one synthetic payable.",
             status,
         )
         render_simulation(simulation)
         st.markdown("#### Accounting entry already created by the simulated payment")
         render_journal_entry(simulation.prepared)
         st.info(
-            "Receipt confirmation supplies evidence and changes the demo status to "
-            "PAID_CONFIRMED. It does not deduct cash again."
+            "The receipt proves the payment already simulated in step 3. Confirming it changes "
+            "the AP status to PAID_CONFIRMED; it does not deduct cash again."
         )
 
         receipt_source = st.radio(
@@ -1413,7 +1825,7 @@ def render_step_match_receipt(simulation: Any) -> None:
             provenance = "bundled_deterministic_svg_fixture; see receipt_provenance.json"
             with input_col:
                 st.caption(
-                    "Included sample: `data/procureagent/assets/fresh_farms_payment_receipt.png`"
+                    "Bundled synthetic file: `data/procureagent/assets/fresh_farms_payment_receipt.png`"
                 )
                 st.download_button(
                     "Download sample receipt",
@@ -1448,13 +1860,13 @@ def render_step_match_receipt(simulation: Any) -> None:
             receipt = None
 
         if st.button(
-            "Read receipt and match payment proof",
+            "Scan receipt and compare exact fields",
             key="eval-run-receipt-adapter",
             type="primary",
             disabled=not receipt_bytes or confirmed is not None,
             use_container_width=True,
         ):
-            with st.spinner("Reading receipt tokens and checking every payment field…"):
+            with st.spinner("Tesseract is reading the receipt; exact rules are comparing every payment field…"):
                 try:
                     receipt = analyze_receipt_upload(
                         simulation,
@@ -1477,13 +1889,13 @@ def render_step_match_receipt(simulation: Any) -> None:
 
         proof_ready = receipt is not None and receipt.proof_gate.closes_obligation
         proof_confirmed = st.checkbox(
-            "I confirm this exact receipt is valid payment evidence for Fresh Farms invoice FF-10482 at $1,500.00.",
+            "I confirm this exact receipt proves payment of Fresh Farms invoice FF-10482 for $1,500.00.",
             value=False,
             key="eval-proof-confirmation",
             disabled=not proof_ready or confirmed is not None,
         )
         confirm_payment = st.button(
-            "Confirm proof and mark Accounts Payable PAID_CONFIRMED",
+            "Confirm match and close Accounts Payable",
             key="eval-confirm-payment",
             type="primary",
             disabled=not proof_ready or not proof_confirmed or confirmed is not None,
@@ -1519,8 +1931,8 @@ def render_step_match_receipt(simulation: Any) -> None:
             cols[1].metric("Cash at receipt confirmation", format_minor(after_cash))
             cols[2].metric("Second cash deduction", format_minor(before_cash - after_cash))
             st.success(
-                "PAID_CONFIRMED in the simulated AP ledger. Verified proof was consumed "
-                "once; no real bank payment was sent and cash was not deducted again."
+                "Complete: invoice FF-10482 and its receipt match. Accounts Payable is "
+                "PAID_CONFIRMED in the simulated ledger; cash was not deducted a second time."
             )
 
         runtime: dict[str, Any] = {
@@ -1530,6 +1942,12 @@ def render_step_match_receipt(simulation: Any) -> None:
             "ap_before_receipt": "SIMULATED_PAYMENT_APPROVED",
         }
         if receipt is not None:
+            receipt_reward = score_receipt_match(
+                receipt.proof_gate,
+                ReceiptMatchAction.ACCEPT_MATCH
+                if receipt.proof_gate.closes_obligation
+                else ReceiptMatchAction.REQUEST_REVIEW,
+            )
             runtime.update(
                 {
                     "receipt_document_id": receipt.image.document_id,
@@ -1540,6 +1958,9 @@ def render_step_match_receipt(simulation: Any) -> None:
                     "parser": receipt.parsed.extraction_method,
                     "proof_gate": receipt.proof_gate.status.value,
                     "proof_checks": list(receipt.proof_gate.checks_passed),
+                    "rl_ready_reward": str(receipt_reward.reward),
+                    "rl_ready_outcome": receipt_reward.outcome,
+                    "trained_policy": receipt_reward.trained_policy,
                 }
             )
         if confirmed is not None:
@@ -1548,10 +1969,26 @@ def render_step_match_receipt(simulation: Any) -> None:
         render_technical_evidence(
             sources=(
                 ("Receipt OCR, parse and exact proof gate", "src/procureagent/ui_adapters.py", 381, 396),
+                ("RL-ready receipt reward · evaluation only", "src/procureagent/receipt_reward.py", 75, 109),
                 ("Evidence-only AP confirmation", "src/procureagent/ui_adapters.py", 408, 421),
             ),
             runtime=runtime,
         )
+
+    confirmed = st.session_state.get("eval-confirmed-payment")
+    if confirmed is not None:
+        history_visible = bool(st.session_state.get("eval-ap-history-visible"))
+        if not history_visible:
+            if st.button(
+                "Done — view AP history",
+                key="eval-view-ap-history",
+                type="primary",
+                use_container_width=True,
+            ):
+                st.session_state["eval-ap-history-visible"] = True
+                st.rerun()
+        else:
+            render_ap_history_dashboard(confirmed)
 
 
 def render_eval() -> None:
@@ -1593,21 +2030,21 @@ def render_task_status() -> None:
 def render_route_hero(route: str) -> None:
     copy = {
         "Guided demo": (
-            "Small-business accounts payable · guided demo",
-            "Turn one invoice into a closed payable—with proof.",
-            "Read an invoice, confirm its identity, approve a simulated plan, then match the receipt. "
-            "Each step explains the business outcome first and keeps the real code one click away.",
-            "Four clear steps · sample files included",
+            "InvoiceAgent · Cambridge restaurant walkthrough",
+            "Paper invoice in. Paid proof out.",
+            "Follow one synthetic Sugar & Spice Thai Restaurant bill from Fresh Farms invoice "
+            "to matched receipt, with a person approving every bookkeeping step.",
+            "Synthetic scenario · no affiliation with Sugar & Spice",
         ),
         "Overview": (
-            "Restaurant cash planning · locked scenario",
-            "See what is owed and what the plan protects.",
+            "InvoiceAgent · advanced restaurant view",
+            "See what is owed and what the policy protects.",
             "Four supplier invoices compete for limited cash. This view explains the deterministic "
             "recommendation without accepting a document or changing state.",
             "Read-only overview · exact synthetic records",
         ),
         "Evidence & methods": (
-            "Engineering evidence · bounded claims",
+            "InvoiceAgent · engineering evidence",
             "Inspect the code, tests and evaluation boundaries.",
             "Review the real source chain, OCR/model provenance, deterministic comparisons, "
             "adversarial boundary and downloadable demo fixtures.",
@@ -1615,10 +2052,34 @@ def render_route_hero(route: str) -> None:
         ),
     }[route]
     kicker, title, description, badge = copy
+    if route == "Guided demo" and RESTAURANT_HERO_PATH.exists():
+        encoded = base64.b64encode(read_bytes(RESTAURANT_HERO_PATH)).decode("ascii")
+        st.markdown(
+            f'<section class="pa-hero pa-hero--visual" '
+            f'style="--pa-hero-image:url(data:image/jpeg;base64,{encoded})">'
+            f'<div class="pa-hero-copy"><div class="pa-kicker">{esc(kicker)}</div>'
+            f'<h1>{esc(title)}</h1><p>{esc(description)}</p>'
+            f'<span class="pa-badge">{esc(badge)}</span>'
+            '<small class="pa-hero-note">Illustrative original image · not a photograph of Sugar &amp; Spice · '
+            '<a href="https://sugarspices.com/" target="_blank" rel="noreferrer">restaurant context</a></small>'
+            '</div></section>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f'<section class="pa-hero"><div class="pa-kicker">{esc(kicker)}</div>'
+            f'<h1>{esc(title)}</h1><p>{esc(description)}</p>'
+            f'<span class="pa-badge">{esc(badge)}</span></section>',
+            unsafe_allow_html=True,
+        )
+
+
+def render_brandbar() -> None:
     st.markdown(
-        f'<section class="pa-hero"><div class="pa-kicker">{esc(kicker)}</div>'
-        f'<h1>{esc(title)}</h1><p>{esc(description)}</p>'
-        f'<span class="pa-badge">{esc(badge)}</span></section>',
+        '<header class="pa-brandbar"><div class="pa-wordmark">'
+        '<span class="pa-monogram" aria-hidden="true">IA</span>'
+        '<span>InvoiceAgent<br><span class="pa-byline">by Sundai</span></span></div>'
+        '<small>Sugar &amp; Spice demo workspace<br>Porter Square · Cambridge</small></header>',
         unsafe_allow_html=True,
     )
 
@@ -1674,6 +2135,7 @@ def render_evidence_route() -> None:
 
 
 st.markdown(CSS, unsafe_allow_html=True)
+render_brandbar()
 nav_col, reset_col = st.columns([3.2, .8])
 with nav_col:
     route = st.radio(
@@ -1690,10 +2152,6 @@ with reset_col:
 render_route_hero(route)
 render_trust_strip()
 if route == "Guided demo":
-    st.caption(
-        "Synthetic restaurant scenario · OCR and the local invoice-number model run only "
-        "after you click · every financial action stays simulated."
-    )
     render_eval()
 elif route == "Overview":
     render_overview_route()

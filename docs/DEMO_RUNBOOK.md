@@ -1,4 +1,4 @@
-# ProcureAgent demo and recording runbook
+# InvoiceAgent demo and recording runbook
 
 This is the operator checklist for the 2–3 minute hackathon demo. It assumes the repository root is the working directory and no real banking or accounting integration exists.
 
@@ -54,7 +54,9 @@ Useful assets:
 - Receipt provenance: `data/procureagent/assets/receipt_provenance.json`
 - Captured model proof: `data/procureagent/eval/model_smoke_v1.json`
 - Acceptance result: `data/procureagent/eval/acceptance_live_v1.json`
-- Dashboard screenshot: `docs/assets/procureagent-dashboard.png`
+- Original illustrative restaurant hero: `data/procureagent/assets/invoiceagent-restaurant-hero.jpg` with adjacent provenance JSON — not a real Sugar & Spice photograph; no affiliation
+- Dashboard screenshot: `docs/assets/invoiceagent-dashboard.png`
+- Completed AP-history screenshot: `docs/assets/invoiceagent-eval-complete.png`
 - Sundai thumbnail: `docs/assets/sundai-thumbnail.png` (1200×630)
 
 ## 3. Four-step guided talk track
@@ -73,8 +75,8 @@ Call out each boundary:
 
 - Tesseract produced every word, OCR confidence, and normalized box.
 - Every token remains inspectable with its label and provenance; ordinary words remain honestly labeled OCR-only.
-- Ryan's local LayoutLMv3 token classifier selected only the invoice-number token `FF-10482`.
-- The displayed invoice amount is grounded by OCR plus a separate deterministic total-anchor rule. Ryan's model did not extract it.
+- The local LayoutLMv3 token classifier adapted by Ryan selected only the invoice-number token `FF-10482`.
+- The displayed invoice amount is grounded by OCR plus a separate deterministic total-anchor rule. LayoutLMv3 did not extract it.
 - Strict exact match on this document is yes.
 - Canonical AP amount, due date, inventory, and criticality come from the synthetic lookup after identity confirmation, not from the model.
 - The score is below the auto-confirm threshold, so the gate asks for a person even though rule and model agree.
@@ -95,9 +97,9 @@ Explain the plan before approving it: the deterministic policy proposes actions;
 
 ### Step 3 · 1:20–1:45 — Approve the simulated payment
 
-Explicitly approve the reverified batch. ProcureGym should move cash from $5,000 to $1,000 and advance one day. No real system is touched.
+Explicitly approve the reverified batch. ProcureGym should move cash from $5,000 to $1,000 and advance one day. The $4,000 total contains Fresh Farms $1,500 plus Prime Foods $2,500. No real system is touched.
 
-State the accounting boundary precisely: at this simulated payment step, the demo economically records **Dr Accounts Payable / Cr Cash** for the approved full payments. Cash is deducted here, once. The later receipt proves and closes lifecycle status; it is not another payment or journal entry.
+State the accounting boundary precisely: the approved synthetic batch is interpreted as **Dr Accounts Payable—Fresh Farms $1,500 + Dr Accounts Payable—Prime Foods $2,500 / Cr Cash $4,000**, once. This is not a real general-ledger posting. The later receipt links proof to the Fresh Farms component and closes its lifecycle status; it is not another payment or journal entry.
 
 Show the controlled comparison: Criticality-Aware Greedy matches the bounded 512-schedule oracle with `0.000` regret and zero high-criticality stockout days; Earliest Due First has `56.400` regret and reaches two high-criticality stockout days. Reward remains visible beside raw outcomes.
 
@@ -108,15 +110,29 @@ Select the bundled payment receipt at `data/procureagent/assets/fresh_farms_paym
 Say explicitly:
 
 - Every receipt OCR token remains inspectable with its box, confidence, field label, and deterministic provenance.
-- Receipt supplier, invoice number, amount, currency, paid date, and receipt ID came from Tesseract plus the deterministic receipt parser—not Ryan's model.
+- Receipt supplier, invoice number, amount, currency, paid date, and receipt ID came from Tesseract plus the deterministic receipt parser—not LayoutLMv3.
 - Supplier, invoice, full amount, and currency must match exactly; the receipt ID must be unused, and the paid date must be present, valid, and grounded in OCR.
 - The proof is synthetic and no money moved.
 
-When every check passes, show Fresh Farms move from `SIMULATED_PAYMENT_APPROVED` to `PAID_CONFIRMED` in the demo ledger. Cash remains $1,000: proof closes the status and consumes the receipt ID without a second deduction.
+When every check passes, show Fresh Farms move from `SIMULATED_PAYMENT_APPROVED` to `PAID_CONFIRMED` in the demo ledger. Cash remains $1,000: proof closes the status and consumes the receipt ID without a second deduction. The exact receipt-routing reward is `+10`; call it an RL-ready evaluation signal, not a trained model or policy.
 
-### 2:15–2:30 — Close
+### 2:15–2:35 — View the AP history result
 
-“The small model reads one narrow field. The live P0 evidence gate decides whether a person must review it; the deterministic policy ranks legal actions. C6 separately demonstrates a development-only identity router. Deterministic rules and a person govern the financial boundary. ProcureGym lets us measure the consequences before any real integration.”
+Select **Done — view AP history** and verify the three category labels and all four records:
+
+| Category | Expected result |
+|---|---|
+| **Open invoices (2)** | PackRight `PR-15007` · $1,500 · DEFER; CleanPro `CP-70019` · $700 · VERIFY |
+| **Paid · awaiting proof (1)** | Prime Foods `PF-25031` · $2,500 · `SIMULATED_PAYMENT_APPROVED` |
+| **Completed (1)** | Fresh Farms `FF-10482` · $1,500 · `PAID_CONFIRMED` · receipt `RCPT-FF-10482` |
+
+Point to the **$0 second cash impact**. Prime Foods is not mislabeled complete: it was paid in the simulation but still needs receipt proof. PackRight and CleanPro remain open for different reasons.
+
+Explain the finance boundary: this dashboard supports working-capital discipline by organizing cash, supplier obligations, timing, and proof. It is **not** a full net-working-capital calculation because Accounts Receivable, balance-sheet inventory valuation, and other current assets/liabilities are outside the demo. Inventory days is an operational runway signal, not a balance-sheet valuation.
+
+### 2:35–2:50 — Close
+
+“The small model reads one narrow field. The live P0 evidence gate decides whether a person must review it; the deterministic policy ranks legal actions. C6 separately demonstrates a development-only identity router. Deterministic rules and a person govern the financial boundary. ProcureGym lets us measure consequences, and AP history keeps each obligation and its proof organized before any real integration.”
 
 If showing the Router Lab inside **Evidence & methods**, state the exact scope: seven synthetic development rows; all seven context bins were also seen in training; no frozen test was evaluated. The learned router's `4 correct / 0 wrong / 3 review` result versus the fixed gate's `3 / 0 / 4` is a within-bin development result, not a live-invoice or generalization claim. C6 does not route the uploaded invoice, rank suppliers, or make payment actions in this recording flow.
 
@@ -148,21 +164,24 @@ Say:
 - “Synthetic looked-up amount and restaurant state.”
 - “Deterministic P0 policy; contextual bandit is a separately labeled lab.”
 - “Recommend PAY,” “simulated paid,” and “receipt proof confirmed.”
-- “The simulated payment records Dr Accounts Payable / Cr Cash once; receipt proof closes status without deducting cash again.”
+- “The $4,000 simulated batch is interpreted as Dr Accounts Payable for Fresh Farms and Prime Foods / Cr Cash once; receipt proof closes Fresh Farms status without deducting cash again.”
+- “AP history ends at 2 open, 1 paid awaiting proof, and 1 completed.”
+- “This supports working-capital discipline; it is not a full net-working-capital calculation.”
 - “No real money moved.”
 
 Never say:
 
-- Ryan's model performed OCR, read the receipt, extracted every field, or chose the supplier payment.
-- Ryan's model extracted the invoice amount; that displayed token is OCR plus a deterministic amount rule.
+- LayoutLMv3 performed OCR, read the receipt, extracted every field, or chose the supplier payment.
+- LayoutLMv3 extracted the invoice amount; that displayed token is OCR plus a deterministic amount rule.
 - A replay was a live run.
 - A learned policy beat a baseline unless a frozen held-out artifact proves it.
 - `PAID_CONFIRMED` means a bank payment occurred.
 - Receipt verification paid the invoice or reduced cash a second time.
+- The AP-history screen calculates net working capital or values inventory.
 
 ## 7. Release checklist
 
-Latest evidence: **208 tests passed with two intentionally opt-in real-Tesseract smokes skipped** in the default run; the enabled focused smoke subset passes **32/32**. Offline acceptance is **9/9**, live acceptance is **10/10**, all **6/6** action/governance attacks are blocked, and all **8/8** receipt/proof attacks are blocked.
+Latest evidence: **219 tests passed with two intentionally opt-in real-Tesseract smokes skipped** in the default run; the enabled focused Tesseract/UI/reward subset passes **49/49**. Offline acceptance is **9/9**, live acceptance is **10/10**, all **6/6** action/governance attacks are blocked, and all **8/8** receipt/proof attacks are blocked.
 
 - [ ] `scripts/eval_procureagent.py` passes offline.
 - [ ] `scripts/eval_procureagent.py --with-model` passes after warmup.
@@ -171,6 +190,8 @@ Latest evidence: **208 tests passed with two intentionally opt-in real-Tesseract
 - [ ] The document gate visibly requests review on the current Fresh Farms run.
 - [ ] No ProcureGym state changes before explicit operator approval.
 - [ ] The approved simulation deducts cash exactly once and the receipt confirmation leaves cash unchanged.
+- [ ] **Done — view AP history** shows exactly 2 open / 1 paid awaiting proof / 1 completed with the locked supplier mapping.
+- [ ] The final screen shows $0 second cash impact and distinguishes working-capital support from complete NWC reporting.
 - [ ] Wrong amount/supplier/invoice/currency and duplicate proof remain blocked.
 - [ ] Clean browser reaches the app and completes the recording path.
 - [ ] Public tunnel, Cloud Run URL, or optional Streamlit URL works from a second device.
