@@ -1123,16 +1123,21 @@ def render_receipt_result(receipt: Any) -> None:
     render_table([{"Field": key, "Parsed value": value} for key, value in fields.items()])
     gate = receipt.proof_gate
     detail = gate.status.value + (" · " + " · ".join(gate.reason_codes) if gate.reason_codes else "")
-    stage_badge("Exact payment-proof check", detail, "ok" if gate.closes_obligation else "stop")
+    stage_badge("Receipt ID payment-proof check", detail, "ok" if gate.closes_obligation else "stop")
     st.caption("Checks passed: " + (" · ".join(gate.checks_passed) or "none"))
     st.caption(f"Source: {receipt.source.value} · provenance: {receipt.provenance}")
+    if gate.field_match_warnings:
+        st.warning(
+            "Not confirmed by the receipt itself — the closed obligation still uses the real "
+            "invoice's own values for these: " + " · ".join(gate.field_match_warnings)
+        )
     if gate.closes_obligation:
         st.success(
-            "The supplier, invoice number, amount, currency and receipt ID all pass. "
+            "The receipt ID is confirmed, grounded in this OCR, and unused. "
             "Accounts Payable stays SIMULATED_PAYMENT_APPROVED until your separate confirmation."
         )
     else:
-        st.error("The receipt did not pass every exact check. Accounts Payable remains open.")
+        st.error("The receipt ID did not pass. Accounts Payable remains open.")
 
 
 def render_recording_kit() -> None:
@@ -1701,6 +1706,7 @@ def render_step_match_receipt(simulation: Any) -> None:
                     "parser": receipt.parsed.extraction_method,
                     "proof_gate": receipt.proof_gate.status.value,
                     "proof_checks": list(receipt.proof_gate.checks_passed),
+                    "proof_field_match_warnings": list(receipt.proof_gate.field_match_warnings),
                 }
             )
         if confirmed is not None:

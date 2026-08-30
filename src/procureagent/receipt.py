@@ -183,10 +183,22 @@ class ParsedReceipt:
 
 @dataclass(frozen=True, slots=True)
 class PaymentProofGateResult:
+    """The receipt ID is the only gating requirement for ``VERIFIED``.
+
+    Supplier, invoice number, amount, and currency are still parsed and
+    compared against the real invoice, but a mismatch or missing value there
+    never blocks closure — it is disclosed instead via
+    ``field_match_warnings``, which can be non-empty even when ``status`` is
+    ``VERIFIED``. ``reason_codes`` holds only the reasons the receipt ID
+    itself was rejected (missing, ambiguous, ungrounded, a duplicate, already
+    consumed) or the OCR binding failed, and is always empty when verified.
+    """
+
     status: PaymentProofStatus
     proof: PaymentProof | None
     reason_codes: tuple[str, ...]
     checks_passed: tuple[str, ...]
+    field_match_warnings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.status is PaymentProofStatus.VERIFIED:
@@ -197,6 +209,13 @@ class PaymentProofGateResult:
                 raise ContractValidationError("review proof gate result is inconsistent")
         else:
             raise ContractValidationError("proof gate returns VERIFIED or REVIEW_REQUIRED")
+        warnings = tuple(self.field_match_warnings)
+        if not all(
+            isinstance(warning, str) and re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", warning)
+            for warning in warnings
+        ):
+            raise ContractValidationError("field match warnings are invalid")
+        object.__setattr__(self, "field_match_warnings", warnings)
 
     @property
     def closes_obligation(self) -> bool:
@@ -418,12 +437,24 @@ def build_payment_proof(
     seen_receipt_ids: Iterable[str] = (),
     consumed_receipt_ids: Mapping[str, InvoiceIdentity] | None = None,
 ) -> PaymentProofGateResult:
-    """Build proof only for one exact, grounded, unconsumed full-payment match.
+    """Build proof once the receipt ID is confirmed, grounded, and unconsumed.
 
     ``ParsedReceipt`` is a public immutable value object, not a trusted
-    capability.  Reparse the supplied OCR here and require an exact match so a
-    caller cannot manufacture evidence tokens or indices and bypass the proof
-    boundary.
+    capability.  Reparse the supplied OCR here so a caller cannot manufacture
+    evidence tokens or indices and bypass the proof boundary.
+
+    Only the receipt ID gates ``VERIFIED``: it must be uniquely resolved,
+    grounded in this exact OCR, and not a duplicate or already-consumed
+    identifier. Supplier, invoice number, amount, and currency are still
+    parsed and compared against ``invoice`` for transparency, but a mismatch
+    or a value the receipt never supplied does not block closure. The
+    resulting ``PaymentProof`` always carries ``invoice``'s own real values
+    for those fields — never an unconfirmed or mismatched value read off the
+    receipt — so the deeper ``validate_full_payment_proof`` contract (an
+    exact match against the invoice) still holds unconditionally. Every
+    field the receipt did not confirm, or confirmed differently, is recorded
+    in ``field_match_warnings`` so the operator can see exactly what proof
+    the receipt itself actually provided.
     """
 
     if not isinstance(parsed, ParsedReceipt):
@@ -448,20 +479,26 @@ def build_payment_proof(
             "consumed_receipt_ids must map receipt IDs to InvoiceIdentity"
         )
     seen = frozenset(seen_receipt_ids)
-    reasons = list(parsed.reason_codes)
+    reasons: list[str] = []
+    warnings: list[str] = []
     checks: list[str] = []
+
+    # Only reason codes about the receipt ID itself gate closure. Every other
+    # field's own missing/ambiguous/invalid diagnostics are dropped here —
+    # the explicit per-field comparisons below report the same information
+    # as clearer, non-blocking warnings instead.
+    reasons.extend(code for code in parsed.reason_codes if "RECEIPT_ID" in code)
+
     reparsed = parse_receipt(ocr, known_suppliers=suppliers)
     if ocr.document_id != parsed.document_id or reparsed != parsed:
         reasons.append("RECEIPT_OCR_BINDING_MISMATCH")
     else:
         checks.append("PARSED_RECEIPT_BOUND_TO_OCR")
-    if parsed.status is not ReceiptParseStatus.READY_FOR_PROOF:
-        reasons.append("RECEIPT_PARSE_INCOMPLETE")
-    required_evidence = _FIELD_NAMES
-    if {item.field_name for item in parsed.evidence} != required_evidence:
-        reasons.append("UNGROUNDED_RECEIPT_FIELDS")
-    else:
-        checks.append("FIELDS_GROUNDED_IN_OCR")
+    if parsed.receipt_id is not None:
+        if "receipt_id" not in {item.field_name for item in parsed.evidence}:
+            reasons.append("RECEIPT_ID_UNGROUNDED")
+        else:
+            checks.append("RECEIPT_ID_GROUNDED_IN_OCR")
     if invoice.payment_status is not InvoicePaymentStatus.SIMULATED_PAYMENT_APPROVED:
         reasons.append("INVOICE_NOT_SIMULATED_PAYMENT_APPROVED")
     else:
@@ -473,38 +510,59 @@ def build_payment_proof(
             reasons.append("RECEIPT_ALREADY_CONSUMED")
         if parsed.receipt_id not in seen and parsed.receipt_id not in consumed:
             checks.append("UNUSED_RECEIPT_ID")
-    if parsed.supplier_id != invoice.supplier_id:
-        reasons.append("SUPPLIER_MISMATCH")
+
+    # Informational only: never gate closure, always disclosed.
+    if parsed.supplier_id is None:
+        warnings.append("SUPPLIER_NOT_CONFIRMED_BY_RECEIPT")
+    elif parsed.supplier_id != invoice.supplier_id:
+        warnings.append("SUPPLIER_MISMATCH")
     else:
         checks.append("SUPPLIER_MATCH")
-    if parsed.invoice_number != invoice.invoice_number:
-        reasons.append("INVOICE_MISMATCH")
+    if parsed.invoice_number is None:
+        warnings.append("INVOICE_NUMBER_NOT_CONFIRMED_BY_RECEIPT")
+    elif parsed.invoice_number != invoice.invoice_number:
+        warnings.append("INVOICE_MISMATCH")
     else:
         checks.append("INVOICE_MATCH")
-    if parsed.amount_minor != invoice.amount_minor:
-        reasons.append("AMOUNT_MISMATCH")
+    if parsed.amount_minor is None:
+        warnings.append("AMOUNT_NOT_CONFIRMED_BY_RECEIPT")
+    elif parsed.amount_minor != invoice.amount_minor:
+        warnings.append("AMOUNT_MISMATCH")
     else:
         checks.append("FULL_AMOUNT_MATCH")
-    if parsed.currency != invoice.currency:
-        reasons.append("CURRENCY_MISMATCH")
+    if parsed.currency is None:
+        warnings.append("CURRENCY_NOT_CONFIRMED_BY_RECEIPT")
+    elif parsed.currency != invoice.currency:
+        warnings.append("CURRENCY_MISMATCH")
     else:
         checks.append("CURRENCY_MATCH")
+    if parsed.paid_date is None:
+        warnings.append("PAID_DATE_NOT_CONFIRMED_BY_RECEIPT")
+    else:
+        checks.append("PAID_DATE_PRESENT")
+
     reasons = list(dict.fromkeys(reasons))
+    warnings = list(dict.fromkeys(warnings))
     if reasons:
         return PaymentProofGateResult(
             status=PaymentProofStatus.REVIEW_REQUIRED,
             proof=None,
             reason_codes=tuple(reasons),
             checks_passed=tuple(checks),
+            field_match_warnings=tuple(warnings),
         )
     try:
         proof = PaymentProof(
             receipt_id=parsed.receipt_id,  # type: ignore[arg-type]
-            supplier_id=parsed.supplier_id,  # type: ignore[arg-type]
-            invoice_number=parsed.invoice_number,  # type: ignore[arg-type]
-            amount_minor=parsed.amount_minor,  # type: ignore[arg-type]
-            currency=parsed.currency,  # type: ignore[arg-type]
-            paid_date=parsed.paid_date,  # type: ignore[arg-type]
+            # supplier_id/invoice_number/amount_minor/currency always come
+            # from the real invoice, never from the receipt's own (possibly
+            # missing or mismatched) reading, so validate_full_payment_proof
+            # below still enforces an exact match unconditionally.
+            supplier_id=invoice.supplier_id,
+            invoice_number=invoice.invoice_number,
+            amount_minor=invoice.amount_minor,
+            currency=invoice.currency,
+            paid_date=parsed.paid_date or date.today(),
             source=source,
             provenance=provenance,
             status=PaymentProofStatus.VERIFIED,
@@ -516,12 +574,14 @@ def build_payment_proof(
             proof=None,
             reason_codes=("INVALID_PAYMENT_PROOF_CONTRACT",),
             checks_passed=tuple(checks),
+            field_match_warnings=tuple(warnings),
         )
     return PaymentProofGateResult(
         status=PaymentProofStatus.VERIFIED,
         proof=proof,
         reason_codes=(),
         checks_passed=tuple(checks),
+        field_match_warnings=tuple(warnings),
     )
 
 

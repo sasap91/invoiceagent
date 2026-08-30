@@ -352,7 +352,7 @@ def run_acceptance(
             and proof is not None
             and set(gate.checks_passed)
             >= {
-                "FIELDS_GROUNDED_IN_OCR",
+                "RECEIPT_ID_GROUNDED_IN_OCR",
                 "SIMULATED_PAYMENT_APPROVED",
                 "SUPPLIER_MATCH",
                 "INVOICE_MATCH",
@@ -450,9 +450,15 @@ def run_acceptance(
                     in forged_gate.reason_codes
                 ),
                 "ambiguous_amount_ocr": (
+                    # Only the receipt ID gates closure now: an ambiguous
+                    # amount is disclosed as a warning, not blocked, and the
+                    # obligation still closes for the invoice's real amount.
                     ambiguous_parsed.status.value == "REVIEW_REQUIRED"
                     and "AMBIGUOUS_AMOUNT_MINOR" in ambiguous_parsed.reason_codes
-                    and not ambiguous_gate.closes_obligation
+                    and ambiguous_gate.closes_obligation
+                    and "AMOUNT_NOT_CONFIRMED_BY_RECEIPT" in ambiguous_gate.field_match_warnings
+                    and ambiguous_gate.proof is not None
+                    and ambiguous_gate.proof.amount_minor == fresh.amount_minor
                 ),
                 "duplicate_receipt_id": (
                     not duplicate_gate.closes_obligation

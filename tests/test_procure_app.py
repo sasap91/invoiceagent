@@ -247,7 +247,7 @@ def test_mocked_guided_flow_keeps_every_explicit_gate_and_no_second_cash_hit() -
         assert not proof.exception
         proof.button(key="eval-run-receipt-adapter").click().run()
         assert not proof.exception
-        assert "Exact payment-proof check" in page_text(proof)
+        assert "Receipt ID payment-proof check" in page_text(proof)
         assert "Amount · receipt field rule" in page_text(proof)
         assert proof.checkbox(key="eval-proof-confirmation").value is False
         assert proof.button(key="eval-confirm-payment").disabled
