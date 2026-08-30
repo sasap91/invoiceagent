@@ -82,14 +82,16 @@ An independent restaurant owner or manager working with approximately five to te
 7. Compare the same scenario against **Earliest Due First**.
 8. Fail closed when document identity, supplier context, or financial constraints are uncertain.
 9. Demonstrate the full Accounts Payable lifecycle with a full-payment receipt whose supplier, invoice, amount, and currency match exactly before the transaction is marked complete.
+10. Instrument the three learning targets separately: invoice-number correctness, multi-day supplier-ranking quality, and exact payment-action correctness.
 
 ### P1 stretch goals
 
-1. Add a named model-driven procurement policy with frozen configuration and structured output.
+1. Add a named learned ProcureGym procurement policy with frozen training configuration, masked legal actions, and structured output.
 2. Generate an offline action-outcome matrix for extraction routes.
 3. Train and evaluate a constrained contextual-bandit router in a sandbox.
 4. Add an experimental non-English fixture that routes to review unless separately validated.
 5. Run several seeded restaurant scenarios rather than one.
+6. Train a procurement policy in ProcureGym over the legal masked action space and compare it with deterministic baselines plus a bounded oracle where feasible.
 
 ### Demo success statement
 
@@ -209,7 +211,25 @@ flowchart TD
 
 ## 7. Where learning belongs
 
-ProcureAgent contains three different learning or policy concepts. They must not be blended into one vague “AI” claim.
+ProcureAgent contains different learning and policy components. They must not be blended into one vague “AI” claim.
+
+### 7.0 The three RL/evaluation questions
+
+The team agreed that learning and reward design must answer three separate questions:
+
+1. **Did we identify the invoice number correctly?** Compare the proposed invoice number with declared ground truth using strict exact match, and heavily penalize any incorrect identity that is automatically accepted. Ryan's token reader remains supervised; the RL component here is the extraction router deciding whether to trust cheap rules, invoke the local specialist, or request review.
+2. **Did we prioritize suppliers in the right order?** At each simulated day, rank whom to pay first, second, third, and so on using the restaurant's operational runway: inventory days remaining relative to delivery lead time, due days, supplier criticality, payment-unlocked delivery, and available cash. Evaluate the ordered plan by its downstream ProcureGym outcomes, not only by agreement with a hand-written ranking.
+3. **Did we take the right payment action?** Check that the chosen action targets the right verified supplier and invoice, at the right simulated time, for the exact full outstanding amount. The learned policy may select among legal actions; it may not invent a supplier, invoice, currency, or amount.
+
+These are reported as three reward/metric components rather than one opaque score:
+
+| Component | Positive evidence | Failure evidence | Hard safety boundary |
+|---|---|---|---|
+| Identity correctness | Strict exact invoice-number match or appropriate review | Wrong automatic acceptance, missing identity, unnecessary model/review cost | Unknown, ambiguous, or ungrounded identity cannot activate a payable |
+| Priority quality | Critical restaurant runway protected, fewer stockout/disruption days, sensible ordered schedule | Critical stockout, avoidable supplier disruption, excessive late fees, poor schedule regret | Ranking cannot bypass document verification or current state |
+| Payment action correctness | Right composite identity, exact full amount, legal timing, nonnegative cash | Wrong supplier/invoice, wrong amount/currency, duplicate, stale, or over-budget action | Invalid actions are masked during learning and independently blocked by the verifier |
+
+For the locked four-invoice scenario, C5 should compare the policy with Earliest Due First and, when implemented, a bounded exhaustive legal-schedule oracle. The oracle is an evaluation reference, not a production policy. Any reported aggregate reward must be shown beside all three component scores and raw outcomes.
 
 ### 7.1 Supervised document reader
 
@@ -254,10 +274,10 @@ ProcureGym is a sequential decision environment:
 
 | RL element | MVP definition |
 |---|---|
-| State | Cash, outstanding invoices, inventory days, due days, supplier status, and document verification status |
-| Action | One daily batch containing PAY, DEFER, or VERIFY for every active invoice |
+| State | Cash, outstanding invoices, inventory days, delivery lead days, due days, supplier criticality/status, payment-unlocked delivery, and document verification status |
+| Action | An ordered daily batch containing PAY, DEFER, or VERIFY for every active invoice; PAY is masked to one verified composite identity and its exact full outstanding amount |
 | Transition | One reverified, operator-approved batch commits atomically; then time changes inventory, invoice age, fees, deliveries, and supplier status |
-| Reward | Scores continuity and safe allocation while penalizing stockouts, fees, disruption, negative cash, and unsafe proposals |
+| Reward | Reports identity correctness, ordered-priority quality, and payment-action correctness separately, then summarizes continuity and safe allocation while penalizing stockouts, fees, disruption, negative cash, and unsafe proposals |
 | Horizon | Seven simulated restaurant days |
 | Terminal conditions | Seven days reached; or any high-criticality inventory remains at zero for two consecutive simulated days |
 
@@ -279,9 +299,9 @@ P0 uses a deterministic policy, not an unnamed AI model:
 5. Recommend DEFER for a valid invoice that does not fit the remaining budget.
 6. Return one recommendation for every active invoice in one daily batch.
 
-Weights freeze before the evaluation scenario runs. A malformed or unavailable future model-driven policy falls back to VERIFY. Any P1 model-driven policy must name its model, runtime, prompt/version, sampling settings, and structured output. The UI must never imply that the 133M document extractor made the procurement decision.
+Weights freeze before the evaluation scenario runs. A malformed or unavailable future learned policy falls back to VERIFY. Any P1 policy must name its algorithm/model, runtime, training data/scenarios, reward version, random seeds, action mask, configuration, and structured output. A generative policy must additionally disclose its prompt and sampling settings. The UI must never imply that the 133M document extractor made the procurement decision.
 
-> **Honest presentation line:** The supervised model reads. The router decides how much extraction effort to spend. ProcureGym measures downstream consequences. Deterministic rules and a person remain in control.
+> **Honest presentation line:** The supervised model reads. The router decides how much extraction effort to spend. A procurement policy ranks legal actions. ProcureGym scores identity, priority, and payment action separately; deterministic checks and a person remain in control.
 
 ---
 
@@ -577,7 +597,7 @@ ProcureGym reward should favor operational continuity and penalize critical stoc
 
 1. **Earliest Due First:** sort valid invoices by due days ascending, then supplier ID; PAY each full invoice that fits remaining cash, skip an invoice that does not fit, and continue; incomplete business context returns VERIFY.
 2. **Criticality-Aware Greedy v1, P0:** apply the frozen scoring and batch-allocation algorithm in Section 7.
-3. **Model-driven Procurement Agent, P1:** use the same structured state and disclose model, runtime, prompt, settings, and version.
+3. **Learned ProcureGym Agent, P1:** use the same structured state and masked legal actions; disclose algorithm/model, training scenarios, reward, seeds, runtime, configuration, and version.
 
 Controlled evaluation compares raw proposals from identical seeded states. Every policy uses the same document set, batch verifier, and fixed executor that applies a valid batch without human edits. The live operator workflow demonstrates governance separately and is not mixed into the policy benchmark.
 
@@ -636,15 +656,28 @@ Spanish or another language may appear only as a clearly labeled experiment. The
 | FR-17 | P0 | Payment-proof gate requires exact supplier, invoice, full amount, and currency match; ambiguous, duplicate, partial, excess, or mismatched proof leaves AP open. |
 | FR-18 | P0 | A verified proof moves only the matching demo-ledger obligation to `PAID_CONFIRMED` and is explicitly labeled as simulated rather than a bank transaction. |
 | FR-19 | P0 | Repository includes one inspected synthetic receipt fixture and metadata without exposing `FAL_KEY`; Fal status or deterministic fallback provenance is explicit. |
-| FR-20 | P1 | Generate offline extraction action-outcome matrix with accuracy, latency, and review cost. |
-| FR-21 | P1 | Train constrained contextual-bandit router without using locked test split. |
-| FR-22 | P1 | Compare frozen bandit with calibrated threshold and always-review baselines. |
-| FR-23 | P1 | Add a named model-driven procurement policy and several seeded scenarios. |
-| FR-24 | P1 | Add separately reported non-English experiments without generalized claims. |
+| FR-20 | P0 | Evaluation and UI report invoice-identity correctness, daily ordered-priority quality, and exact payment-action correctness as separate components with raw outcomes. |
+| FR-21 | P1 | Generate offline extraction action-outcome matrix with accuracy, latency, and review cost. |
+| FR-22 | P1 | Train constrained contextual-bandit router without using locked test split. |
+| FR-23 | P1 | Compare frozen bandit with calibrated threshold and always-review baselines. |
+| FR-24 | P1 | Train a named ProcureGym policy only over masked legal actions, then compare identical seeded scenarios with deterministic baselines and a bounded oracle when available. |
+| FR-25 | P1 | Add separately reported non-English experiments without generalized claims. |
 
 ---
 
 ## 14. Evaluation and success metrics
+
+### Three-axis RL scorecard
+
+The evaluation artifact must present these columns independently for every run:
+
+| Axis | Required metrics | What “right” means |
+|---|---|---|
+| **1 · Invoice identity** | Strict exact match, wrong-auto-accept count, review rate, missing/ambiguous count, latency, route cost | Matches a frozen label exactly, or safely requests review when the label cannot be supported |
+| **2 · Prioritization ranking** | Ordered supplier list for every day, critical suppliers protected in top positions, stockout/disruption days, late fees, cumulative reward, and schedule regret when an oracle exists | Produces the best verified downstream restaurant outcome under the same starting state and cash—not merely the ranking the team expected |
+| **3 · Payment action** | Correct composite supplier/invoice, exact full amount/currency, timing, duplicates, stale actions, over-budget attempts, and blocked-invalid count | Chooses a currently legal verified action; the verifier independently enforces identity, exact amount, and cash constraints |
+
+The UI must never collapse these into a single “accuracy” percentage. A policy can identify an invoice correctly and still rank it poorly; it can rank a supplier correctly and still emit an invalid payment. Those failures must remain visible.
 
 ### Document perception
 
@@ -706,11 +739,11 @@ PAY/DEFER/VERIFY proposal, explanation, reason codes, verifier checks, APPROVE/M
 
 ### Screen 4 — ProcureGym outcome
 
-Before/after state, cash and inventory movement, fees, supplier status, raw metrics, reward, baseline comparison, and audit timeline.
+Before/after state, cash and inventory movement, fees, supplier status, daily ordered supplier ranking, exact payment actions, raw metrics, three-axis reward components, baseline/oracle comparison when available, and audit timeline.
 
 ### Eval Lab — invoice to completed AP transaction
 
-An interactive recording path accepts an invoice image, shows OCR tokens and Ryan-model invoice-number evidence, optionally compares it with an operator-supplied expected value for per-document exact match, explains why the supplier bill is Accounts Payable, runs the governed simulated recommendation, accepts a full-payment receipt image, shows receipt OCR and deterministic parsing, and marks the AP transaction complete only after the exact proof gate passes. Each step names its actual implementation, model/runtime, source file, status, and live-versus-fixture provenance.
+An interactive recording path accepts an invoice image, shows OCR tokens and Ryan-model invoice-number evidence, optionally compares it with an operator-supplied expected value for per-document exact match, explains why the supplier bill is Accounts Payable, shows the agent's first/second/third supplier ranking and why restaurant runway drove it, displays the exact supplier/amount/time action checks, runs the governed simulated recommendation, accepts a full-payment receipt image, shows receipt OCR and deterministic parsing, and marks the AP transaction complete only after the exact proof gate passes. Each step names its actual implementation, model/runtime, source file, status, and live-versus-fixture provenance.
 
 ---
 
@@ -718,11 +751,11 @@ An interactive recording path accepts an invoice image, shows OCR tokens and Rya
 
 | Member | Current recorded status |
 |---|---|
-| **Sasa P** | Co-owner: C7; owner: C8 |
-| **Ryan Nie** | Co-owner: C1, C2, C4, and C6; owner of the pre-existing invoice-number model asset |
-| **David / @cheezburgerz** | Co-owner: C1 and C6 |
+| **Sasa P** | Co-owner: C5 and C7; owner: C8 |
+| **Ryan Nie** | Co-owner: C1, C2, C4, C6, and C7; owner of the pre-existing invoice-number model asset |
+| **David / @cheezburgerz** | Co-owner: C1, C6, and C7 |
 | **Wilson / @skylarwooster** | Owner: C0, C3, and C5; co-owner: C7 |
-| **Dillon** | Co-owner: C1, C2, C4, and C6 |
+| **Dillon** | Co-owner: C1, C2, C4, C6, and C7 |
 
 These assignments were confirmed by Wilson on 30 August 2026. Multiple names indicate shared ownership; the co-owners must agree who signs off the category's done test. To protect the hackathon deadline, Wilson is also implementing the integrated reference path across C0–C8. This does not erase category ownership: compatible teammate work is merged against the frozen contracts, and the listed owner or co-owners still review and sign off their category.
 
@@ -745,10 +778,10 @@ These assignments were confirmed by Wilson on 30 August 2026. Multiple names ind
 | **CLAIMED** | **C2 — Local specialist, evidence, and document gate** | Package Ryan's invoice adapter; return value, entity tokens/boxes/scores, latency, version, failures, and anchored-rule candidate; merge invoice proposals and decide verified identity or document review. Receipt fields remain OCR-plus-rules. | C1; Ryan's artifact; license review | Another member runs correct, wrong, missing, ungrounded, ambiguous, and rule/model-disagreement fixtures outside a notebook; unsafe identity never reaches C3 and every failure remains in metrics. | **Ryan Nie + Dillon · Wilson integration help · NOT VERIFIED** |
 | **CLAIMED** | **C3 — Supplier lookup and restaurant state** | Composite lookup, synthetic invoices, exact cash, inventory, due dates, criticality, status, versioning, and AP lifecycle through verified receipt proof. | C0 contract; C2 verified identity for live integration | $5,000 cash and $6,200 obligations reproduce exactly; unknown IDs activate nothing; only exact full-payment proof closes an obligation. | **Wilson / @skylarwooster · IN PROGRESS** |
 | **CLAIMED** | **C4 — Recommendation, verifier, and governance** | Implement Criticality-Aware Greedy v1, daily batch schema, reasons, hard checks, operator controls, reverification, and audit events. | C3; document gate | Four-invoice batch is deterministic; unsafe, modified-unverified, unapproved, or stale batches cannot reach ProcureGym. | **Ryan Nie + Dillon · Wilson integration help · NOT VERIFIED** |
-| **CLAIMED** | **C5 — ProcureGym, reward, and baselines** | Seeded batch reset/step, transitions, horizon, raw metrics, reward, Earliest Due First, and fixed evaluation executor. | C0, C3, C4 approved-batch contract | Same state runs reproducibly under both P0 policies; only approved batches change state. | **Wilson / @skylarwooster · IN PROGRESS** |
+| **CLAIMED** | **C5 — ProcureGym, reward, and baselines** | Seeded batch reset/step, transitions, horizon, three-axis scorecard, raw metrics, reward, Earliest Due First, legal-schedule oracle when available, and fixed evaluation executor. | C0, C2 identity result, C3, C4 approved-batch contract | Same state runs reproducibly under both P0 policies; identity, ordered ranking, and exact action correctness remain separate; only approved batches change state. | **Sasa P + Wilson / @skylarwooster · IN PROGRESS** |
 | **CLAIMED** | **C6 — Contextual-bandit Router Lab** | Action matrix, constrained reward, training/development split, frozen test, and fixed-gate comparison. | C1/C2 outputs; locked labels | Report learned router only if it beats declared baselines without more unsafe accepts; otherwise show negative result. | **David / @cheezburgerz + Ryan Nie + Dillon · Wilson integration help · NOT VERIFIED · P1** |
-| **CLAIMED** | **C7 — Demo UI, orchestration, and deployment** | Interactive Eval Lab, visible tokens/model/provenance, AP explanation, invoice-to-receipt lifecycle, Streamlit path, health/errors, live/replay labels, public URL, and offline backup. | Stable C0–C5 contracts | Clean-browser 2–3 minute invoice→receipt demo works; public and offline paths pass rehearsal. | **Wilson / @skylarwooster + Sasa P · IN PROGRESS** |
-| **CLAIMED** | **C8 — Evaluation, QA, and presentation proof** | Locked evaluation, invoice and receipt adversarial attacks, results card, runbook, talk track, and release checklist. | All P0 outputs | One command runs P0 acceptance; zero unapproved or unproved lifecycle mutations; each public claim is reproducible or labeled planned. | **Sasa P · Wilson integration help · NOT VERIFIED** |
+| **CLAIMED** | **C7 — Demo UI, orchestration, and deployment** | Interactive Eval Lab, three-axis RL scorecard, visible tokens/model/provenance, AP explanation, invoice-to-receipt lifecycle, Streamlit path, health/errors, live/replay labels, public URL, and offline backup. | Stable C0–C5 contracts | Clean-browser 2–3 minute invoice→receipt demo works; public and offline paths pass rehearsal. | **Wilson / @skylarwooster + Sasa P + Ryan Nie + Dillon + David / @cheezburgerz · IN PROGRESS** |
+| **CLAIMED** | **C8 — Evaluation, QA, and presentation proof** | Locked three-axis evaluation, invoice/action/receipt adversarial attacks, results card, runbook, talk track, and release checklist. | All P0 outputs | One command proves identity correctness, priority ranking/outcomes, exact action validity, and zero unapproved or unproved lifecycle mutations; each public claim is reproducible or labeled planned. | **Sasa P · Wilson integration help · NOT VERIFIED** |
 
 ### Parallel-work rule
 
@@ -851,6 +884,10 @@ flowchart LR
 | AC-16 | Approved simulated Fresh Farms PAY and exact full-payment receipt | Proof gate runs | Receipt evidence and all exact checks show; only Fresh Farms becomes `PAID_CONFIRMED` |
 | AC-17 | Receipt is partial, duplicated, ambiguous, wrong supplier, wrong invoice, wrong amount, or wrong currency | Proof gate runs | AP remains open and the reason is visible |
 | AC-18 | Eval Lab runs in a clean session | User uploads invoice then receipt | OCR/model/rule/provenance labels remain distinct and no real-payment claim appears |
+| AC-19 | Frozen labeled invoice | Identity evaluation runs | Strict exact result is shown independently from routing cost and downstream procurement reward |
+| AC-20 | Same versioned restaurant state | Each policy runs | Daily first/second/third supplier order, runway inputs, exact actions, and downstream outcomes are recorded |
+| AC-21 | Policy proposes wrong supplier, invoice, amount, currency, duplicate, stale, or over-budget action | Action mask or verifier runs | Action never mutates state; blocked-invalid count increases and remains visible |
+| AC-22 | Three-axis evaluation completes | UI/results artifact renders | Identity, ranking, and payment-action results appear separately; no single accuracy number hides a failure |
 
 ---
 
@@ -912,13 +949,16 @@ ProcureAgent P0 is complete only when:
 - The task board records an owner for every P0 category.
 - All four primary invoices reproduce the $5,000 cash versus $6,200 obligations scenario.
 - At least one actual model inference is captured with artifact/version and runtime metadata before any model-run claim is made; every replay remains labeled.
+- Invoice-number strict exact correctness, wrong-auto-accepts, route/review cost, and missing predictions are reported as the identity component.
 - UnknownCo fails document identity before lookup, while verified CleanPro reaches the separate procurement VERIFY path.
 - Every verified composite identity retrieves exactly one immutable synthetic record.
 - Criticality-Aware Greedy v1 produces one deterministic daily batch covering all four active invoices.
 - Modified batches are reverified; the verifier and operator gate prevent every unapproved or over-budget mutation.
 - ProcureGym atomically advances exact, seeded synthetic state by one day for the approved batch.
 - Earliest Due First runs the same four-invoice batch from the same starting state under the fixed comparison protocol.
-- Raw metrics and reward reproduce.
+- Every simulated day records the ordered supplier ranking and restaurant-runway inputs that produced first/second/third priority.
+- Every PAY action names one verified composite identity and its exact full amount/currency; no learned or deterministic policy can invent these values.
+- Identity correctness, priority-ranking outcomes, and payment-action correctness reproduce as separate scorecard components beside raw metrics and aggregate reward.
 - UnknownCo activates no payable; CleanPro receives no direct payment while queued for review.
 - The inspected synthetic receipt fixture and a user-uploaded receipt can exercise the payment-proof gate without exposing credentials; generation provenance names the deterministic fallback until Fal balance is available.
 - Exact full-payment proof closes only the matching simulated AP obligation; every partial, duplicate, ambiguous, or mismatched proof leaves it open.
