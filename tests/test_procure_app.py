@@ -260,3 +260,34 @@ def test_mocked_guided_flow_keeps_every_explicit_gate_and_no_second_cash_hit() -
         assert proof.button(key="eval-confirm-payment").disabled
         assert proof.button(key="eval-run-receipt-adapter").disabled
         assert proof.radio(key="eval-receipt-source").disabled
+
+
+def test_confirm_option_hidden_when_model_found_no_candidate() -> None:
+    """The UI must never offer an action the backend will reject.
+
+    When LayoutLMv3 returns NO_CANDIDATE, record_human_identity_decision
+    raises for CONFIRM even if the anchored rule found something — so the
+    "Confirm the displayed invoice number" choice must not be offered at all
+    for this analysis, only Correct and Reject.
+    """
+
+    from tests.test_procure_ui_adapters import INVOICE_ASSET, InvoiceOcr, NoCandidateModel
+    from procureagent.ui_adapters import analyze_invoice_upload
+
+    analysis = analyze_invoice_upload(
+        INVOICE_ASSET.read_bytes(),
+        filename=INVOICE_ASSET.name,
+        ocr_engine=InvoiceOcr(),
+        model_adapter=NoCandidateModel(),
+    )
+    assert analysis.selected_model_candidate is None
+    assert analysis.rule_candidates[0].invoice_number == "FF-10482"
+
+    review = AppTest.from_file(APP, default_timeout=20)
+    review.session_state["eval-document-analysis"] = analysis
+    review.run()
+    assert not review.exception
+    assert "Suggested invoice number: **FF-10482**" in page_text(review)
+    options = list(review.radio(key="eval-document-review-choice").options)
+    assert "Confirm the displayed invoice number" not in options
+    assert options == ["Correct the invoice number", "Reject this document"]

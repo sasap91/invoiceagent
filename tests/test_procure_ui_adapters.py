@@ -130,6 +130,17 @@ class LowScoreExactModel:
         )
 
 
+class NoCandidateModel:
+    def run(self, image, ocr):
+        return InvoiceModelRun(
+            document_id=image.document_id,
+            status=InvoiceModelRunStatus.NO_CANDIDATE,
+            candidates=(),
+            model_version="ryanznie/test-fixture on cpu",
+            latency_ms=Decimal("9.1"),
+        )
+
+
 class ReceiptOcr:
     def run(self, image):
         return make_ocr(
@@ -170,6 +181,32 @@ def test_low_score_exact_document_still_requires_explicit_human_review():
         prepare_procurement(rejected)
 
 
+def test_confirm_is_rejected_when_only_the_rule_found_a_candidate():
+    """CONFIRM requires a displayed *model* candidate; a rule-only read is not enough.
+
+    The UI must not offer "Confirm the displayed invoice number" when the model
+    found nothing, even though the rule candidate is still shown as a suggestion.
+    """
+
+    analysis = analyze_invoice_upload(
+        INVOICE_ASSET.read_bytes(),
+        filename=INVOICE_ASSET.name,
+        ocr_engine=InvoiceOcr(),
+        model_adapter=NoCandidateModel(),
+    )
+    assert analysis.selected_model_candidate is None
+    assert analysis.rule_candidates[0].invoice_number == "FF-10482"
+
+    with pytest.raises(UiFlowError, match="CONFIRM requires one displayed model candidate"):
+        record_human_identity_decision(analysis, DocumentReviewDecision.CONFIRM)
+
+    # CORRECT and REJECT remain available regardless of the model's outcome.
+    corrected = record_human_identity_decision(
+        analysis, DocumentReviewDecision.CORRECT, corrected_invoice_number="FF-10482"
+    )
+    assert corrected.reviewed_invoice_number == "FF-10482"
+
+
 def test_correcting_to_an_unlocked_invoice_number_produces_a_labeled_placeholder():
     analysis = analyzed_document()
     human = record_human_identity_decision(
@@ -191,6 +228,41 @@ def test_correcting_to_an_unlocked_invoice_number_produces_a_labeled_placeholder
         identity.invoice_number in locked_invoice_numbers for identity in prepared.verified_identities
     )
     assert prepared.verification.result is VerifierResult.REQUIRES_OPERATOR
+
+
+def test_receipt_pipeline_falls_back_to_the_real_invoice_for_a_placeholder_identity():
+    """A placeholder identity must never crash the receipt step.
+
+    Regression test: confirming a placeholder invoice number and proceeding
+    all the way to receipt matching previously raised StateTransitionError
+    ("unknown composite supplier/invoice identity"), because the simulated
+    batch and ProcureGym state only ever contain the four locked invoices.
+    The receipt pipeline must fall back to the real locked invoice for that
+    supplier instead of failing closed on an identity that was never in the
+    simulated state.
+    """
+
+    analysis = analyzed_document()
+    human = record_human_identity_decision(
+        analysis, DocumentReviewDecision.CORRECT, corrected_invoice_number="ZZ-99999"
+    )
+    prepared = prepare_procurement(human)
+    simulation = approve_and_simulate(prepared)
+
+    receipt = analyze_receipt_upload(
+        simulation,
+        RECEIPT_ASSET.read_bytes(),
+        filename=RECEIPT_ASSET.name,
+        source=PaymentProofSource.SYNTHETIC_FIXTURE_REPLAY,
+        provenance="bundled_deterministic_svg_fixture",
+        ocr_engine=ReceiptOcr(),
+    )
+    assert receipt.matched_real_invoice_over_placeholder is True
+    assert receipt.parsed.status.value == "READY_FOR_PROOF"
+    assert receipt.proof_gate.closes_obligation is True
+
+    confirmed = confirm_verified_payment(receipt)
+    assert confirmed.payment_status is InvoicePaymentStatus.PAID_CONFIRMED
 
 
 def test_full_controlled_flow_needs_human_then_operator_then_verified_proof():

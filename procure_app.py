@@ -1063,6 +1063,12 @@ def render_axis_scorecard(analysis: Any | None) -> None:
 
 
 def render_receipt_result(receipt: Any) -> None:
+    if receipt.matched_real_invoice_over_placeholder:
+        st.warning(
+            "You confirmed a placeholder invoice number earlier that isn't part of the locked "
+            "demo dataset. The simulated payment was always for this supplier's real locked "
+            "invoice, so this receipt is being matched against that real invoice instead."
+        )
     parsed = receipt.parsed
     render_ocr_result(
         receipt.ocr,
@@ -1319,13 +1325,20 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
         else:
             st.warning("No suggested invoice number — the rule and the model both found no candidate.")
         st.caption("No choice is preselected. Confirm, correct, or reject what the model displayed.")
+        available_decisions = dict(REVIEW_DECISIONS)
+        if selected is None:
+            available_decisions.pop("Confirm the displayed invoice number", None)
+            st.caption(
+                "Confirm is unavailable because the LayoutLMv3 model found no candidate to confirm — "
+                "use Correct to enter the invoice number yourself, or Reject this document."
+            )
         review_choice = st.radio(
             "Document review decision",
-            tuple(REVIEW_DECISIONS),
+            tuple(available_decisions),
             index=None,
             key="eval-document-review-choice",
         )
-        review_decision = REVIEW_DECISIONS.get(review_choice)
+        review_decision = available_decisions.get(review_choice)
         correction = st.text_input(
             "Correct invoice number",
             value="",

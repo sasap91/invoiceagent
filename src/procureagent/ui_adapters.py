@@ -128,6 +128,7 @@ class ReceiptAnalysis:
     proof_gate: PaymentProofGateResult
     source: PaymentProofSource
     provenance: str
+    matched_real_invoice_over_placeholder: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -409,7 +410,25 @@ def analyze_receipt_upload(
     identity = simulation.prepared.human_decision.verified_identity
     if identity is None:
         raise UiFlowError("receipt proof has no human-verified invoice identity")
-    invoice = require_invoice(simulation.environment.state, identity.identity)
+    state = simulation.environment.state
+    matched_identity = identity.identity
+    used_placeholder_fallback = not any(
+        item.identity == matched_identity for item in state.invoices
+    )
+    if used_placeholder_fallback:
+        # The confirmed identity was an operator-typed placeholder (see
+        # prepare_procurement) that never entered the real simulated batch.
+        # The actual payment that was simulated is always this supplier's
+        # real locked invoice, so match the receipt against that instead of
+        # failing closed on an identity that was never in the state.
+        real_invoice = next(
+            (item for item in state.invoices if item.supplier_id == matched_identity.supplier_id),
+            None,
+        )
+        if real_invoice is None:
+            raise UiFlowError("no locked invoice exists for this operator-confirmed supplier")
+        matched_identity = real_invoice.identity
+    invoice = require_invoice(state, matched_identity)
     proof_gate = build_payment_proof(
         parsed,
         invoice,
@@ -427,6 +446,7 @@ def analyze_receipt_upload(
         proof_gate=proof_gate,
         source=selected_source,
         provenance=provenance,
+        matched_real_invoice_over_placeholder=used_placeholder_fallback,
     )
 
 
