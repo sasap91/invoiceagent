@@ -14,7 +14,7 @@ It is a controlled hackathon demo. It does not connect to a bank, authorize mone
 4. Exact evidence checks fail closed when identity is uncertain.
 5. A visibly synthetic lookup adds the amount, due date, inventory, and supplier context.
 6. A deterministic policy proposes **PAY**, **DEFER**, or **VERIFY**; a verifier and a person govern the simulated action.
-7. ProcureGym shows the restaurant consequence and compares the proposal with Earliest Due First.
+7. ProcureGym shows the restaurant consequence and compares the proposal with Earliest Due First. The operator can approve all seven simulated days, one decision at a time, and can MODIFY or REJECT any of them.
 8. Upload a full-payment receipt. OCR plus deterministic rules—not Ryan's model—must match supplier, invoice, full amount, and currency before the demo ledger says `PAID_CONFIRMED`.
 
 An invoice from a supplier is **Accounts Payable**: money the restaurant owes. The matching receipt is proof for this simulated payment lifecycle. Accounts Receivable and partial payments are outside the MVP.
@@ -80,9 +80,31 @@ To expose the running Mac through an ephemeral Cloudflare URL:
 
 Keep that terminal open. The printed `trycloudflare.com` URL is a temporary, public, unauthenticated presentation endpoint with no uptime guarantee. Use synthetic fixtures only; do not upload confidential invoices.
 
+### The seven-day governed episode
+
+The `/eval` lane runs the whole horizon, not just day 0. Proposing a day is pure
+and mutates nothing; only APPROVE calls `ProcureGym.step`. MODIFY mints a new
+batch ID and must clear the verifier again, and REJECT records a decision that
+provably changes no state and does not advance the day.
+
+Two scenarios are selectable:
+
+| Scenario | Revenue | What the timing decision looks like |
+|---|---|---|
+| `restaurant_demo_v1` (frozen, hash-pinned) | none | Solved on day 0. Days 1–6 are six identical no-op batches; the oracle says PackRight should be paid `never` and regret is `0.000`. |
+| `restaurant_cashflow_v1` | $250/day | PackRight is deferred while unaffordable and paid on **day 2**, the day it fits. The bounded oracle independently agrees. |
+
+The second scenario exists because the first has no interesting answer to *when*.
+It is identical to the frozen fixture apart from the revenue, and it is loaded
+through `load_scenario` rather than `load_locked_scenario`, so the pinned fixture
+is untouched.
+
 Useful recording fixtures:
 
 - [`fresh_farms_invoice.png`](data/procureagent/assets/fresh_farms_invoice.png)
+- [`prime_foods_invoice.png`](data/procureagent/assets/prime_foods_invoice.png)
+- [`packright_invoice.png`](data/procureagent/assets/packright_invoice.png)
+- [`cleanpro_invoice.png`](data/procureagent/assets/cleanpro_invoice.png)
 - [`fresh_farms_payment_receipt.png`](data/procureagent/assets/fresh_farms_payment_receipt.png)
 - [`receipt_provenance.json`](data/procureagent/assets/receipt_provenance.json)
 - [`procureagent-dashboard.png`](docs/assets/procureagent-dashboard.png)
@@ -105,6 +127,13 @@ HF_HUB_DISABLE_PROGRESS_BARS=1 \
   .venv-model/bin/python scripts/eval_procureagent.py --with-model \
   --output data/procureagent/eval/acceptance_live_v1.json
 ```
+
+All four supplier invoices are bundled and every one is verified against real
+Tesseract 5.5.3 to return exactly one correct anchored candidate — see
+[`invoice_assets_ocr_v1.json`](data/procureagent/eval/invoice_assets_ocr_v1.json),
+which claims OCR plus the deterministic rule only and does not claim a gate or
+model result. Each still requires its own human CONFIRM, because the frozen 0.80
+confidence threshold routes them to review.
 
 Freeze evidence: **192 passed, 1 intentionally opt-in skip**; offline acceptance **9/9**; real-model acceptance **10/10**. The safety harness blocks **6/6** action/governance attacks and **8/8** receipt ambiguity, mismatch, duplicate, and forgery attacks.
 

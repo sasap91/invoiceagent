@@ -82,11 +82,37 @@ Click the explicit identity confirmation. Do not call this aggregate model accur
 
 Reveal the synthetic business lookup, then the policy result:
 
-1. **Identity:** was `FF-10482` read correctly?
+1. **Identity:** was `FF-10482` read correctly? Every supplier now has a bundled
+   invoice image, so you can read all four documents rather than one. Each is
+   verified to yield exactly one anchored candidate under real Tesseract; each
+   still needs its own human CONFIRM, because the frozen 0.80 confidence
+   threshold routes them to review.
 2. **Priority:** first Fresh Farms, second Prime Foods, third PackRight, then CleanPro review. Show inventory runway and lead time beside the ranking.
 3. **Action:** Fresh Farms $1,500 and Prime Foods $2,500 are exact verified full-payment actions. The agent cannot invent a supplier or amount.
 
 Run the verifier and explicitly approve the simulated batch. ProcureGym should move cash from $5,000 to $1,000 and advance one day.
+
+### Optional — run the whole governed week
+
+The `/eval` lane now runs all seven days, one explicit operator decision each.
+Three beats worth recording, all verified:
+
+- **REJECT day 0.** The badge asserts `ProcureGym.step was never called`, the day
+  stays at 0 and the state version is unchanged. Rejecting costs nothing.
+- **MODIFY PackRight `DEFER` to `PAY` on day 1.** Re-verification returns
+  `BLOCKED · OVER_BUDGET` — $1,500 against $1,000 of cash — and APPROVE stays
+  disabled. Modifying CleanPro to `PAY` returns
+  `BLOCKED · UNRESOLVED_BUSINESS_CONTEXT` instead.
+- **Switch the scenario picker to `restaurant_cashflow_v1`.** Identical to the
+  locked fixture except for $250/day of simulated revenue. PackRight is deferred
+  on days 0 and 1 because it is unaffordable, then paid on **day 2**, the day it
+  fits. That is the agent choosing *when*, and the bounded oracle independently
+  agrees on day 2.
+
+On the locked fixture, days 1–6 are deliberately six identical no-op batches:
+cash is stuck at $1,000, the oracle says PackRight should be paid `never`, and
+regret is `0.000`. Say that plainly rather than clicking through it in silence —
+it is why the cash-flow scenario exists.
 
 Show the controlled comparison: Criticality-Aware Greedy matches the bounded 512-schedule oracle with `0.000` regret and zero high-criticality stockout days; Earliest Due First has `56.400` regret and reaches two high-criticality stockout days. Reward remains visible beside raw outcomes.
 
