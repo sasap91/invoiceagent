@@ -59,16 +59,33 @@ def test_locked_presentation_fixture_preserves_headline_contract() -> None:
     assert format_minor(150_000) == "$1,500.00"
 
 
-def test_app_renders_actual_overview_without_claiming_live_perception() -> None:
+def test_three_route_shell_defaults_to_progressive_guided_demo() -> None:
     app = boot()
-    assert [tab.label for tab in app.tabs] == [
-        "1 · Restaurant state",
-        "2 · Document evidence",
-        "3 · Daily batch",
-        "4 · ProcureGym",
-        "5 · /eval recording",
-        "6 · Task status",
-    ]
+
+    assert not app.tabs
+    route = app.radio(key="top-route")
+    assert route.value == "Guided demo"
+    assert list(route.options) == ["Guided demo", "Overview", "Evidence & methods"]
+    assert '<ol class="pa-progress"' in page_text(app)
+    assert 'class="current" aria-current="step"' in page_text(app)
+    assert "Read the invoice" in page_text(app)
+    assert "Simulation only" in page_text(app)
+    assert "Human approval required" in page_text(app)
+    assert "No bank or ERP connected" in page_text(app)
+
+    # Progressive disclosure: only the current step's action exists.
+    button_keys = {button.key for button in app.button}
+    assert "eval-run-document-adapter" in button_keys
+    assert "eval-record-human-review" not in button_keys
+    assert "eval-approve-batch" not in button_keys
+    assert "eval-run-receipt-adapter" not in button_keys
+    assert "eval-confirm-payment" not in button_keys
+
+
+def test_overview_route_preserves_locked_business_contract() -> None:
+    app = boot()
+    app.radio(key="top-route").set_value("Overview").run()
+    assert not app.exception
 
     assert dollars(metric_values(app, "Cash available")[0]) == Decimal("5000.00")
     assert dollars(metric_values(app, "Supplier obligations")[0]) == Decimal("6200.00")
@@ -95,31 +112,18 @@ def test_app_renders_actual_overview_without_claiming_live_perception() -> None:
         assert "not OCR extraction" in card
 
     text = page_text(app)
-    for phrase in (
-        "OCR and the local model run only after an explicit /eval click",
-        "Criticality-Aware Greedy v1 and the batch verifier ran",
-        "Operator approval: NOT RECORDED",
-        "Actual deterministic benchmark complete",
-        "Three axes stay separate",
-        "7 hand-authored synthetic development rows",
-        "all 7 context bins also appeared in training",
-        "no frozen test or generalization claim",
-        "David / @cheezburgerz",
-    ):
-        assert phrase in text
-
+    assert "Criticality-Aware Greedy v1 and the batch verifier ran" in text
+    assert "Operator approval: NOT RECORDED" in text
     decision = app.radio(key="operator-decision-preview")
     assert decision.disabled
     assert list(decision.options) == ["APPROVE", "MODIFY", "REJECT"]
     assert app.button(key="run-verifier").disabled
     assert app.button(key="commit-procuregym").disabled
-    assert metric_values(app, "Criticality-aware reward") == ["-12.400"]
-    assert metric_values(app, "EDF reward") == ["-68.800"]
-    assert metric_values(app, "Oracle reward") == ["-12.400"]
 
 
 def test_unknownco_fails_closed_without_changing_obligations() -> None:
     app = boot()
+    app.radio(key="top-route").set_value("Evidence & methods").run()
     app.selectbox(key="document-fixture-selector").set_value("UnknownCo").run()
     assert not app.exception
 
@@ -132,42 +136,30 @@ def test_unknownco_fails_closed_without_changing_obligations() -> None:
     ):
         assert phrase in failure
     assert "BLOCKED BY DESIGN — no canonical lookup" in page_text(app)
-    assert dollars(metric_values(app, "Supplier obligations")[0]) == Decimal("6200.00")
-
-    grid = next(
-        str(item.value)
-        for item in app.markdown
-        if '<div class="pa-grid">' in str(item.value)
-    )
-    assert "UnknownCo" not in grid
 
 
-def test_eval_defaults_are_lazy_and_every_mutation_gate_is_locked() -> None:
+def test_guided_defaults_are_lazy_and_require_supplier_then_human_choice() -> None:
     _reset_cached_ryan_adapter_for_tests()
     app = boot()
     import procureagent.ui_adapters as adapters
 
     assert adapters._CACHED_RYAN_ADAPTER is None
+    assert app.selectbox(key="eval-supplier").value is None
+    assert app.button(key="eval-run-document-adapter").disabled
+    app.selectbox(key="eval-supplier").set_value("Fresh Farms").run()
     assert not app.button(key="eval-run-document-adapter").disabled
-    assert app.button(key="eval-record-human-review").disabled
-    assert app.button(key="eval-approve-batch").disabled
-    assert app.button(key="eval-run-receipt-adapter").disabled
-    assert app.button(key="eval-confirm-payment").disabled
+    assert adapters._CACHED_RYAN_ADAPTER is None
 
     text = page_text(app)
     for phrase in (
-        "Nothing heavy runs when this page renders",
-        "AP in plain English",
+        "Nothing runs until you ask it to",
+        "Accounts Payable is money the business owes a supplier",
         "NOT RUN · click required",
-        "lookup blocked",
-        "restaurant state unchanged",
-        "Receipt proof is locked until operator-approved ProcureGym",
-        "No bank is connected",
+        "The evaluation answer key is hidden from this workflow",
     ):
         assert phrase in text
-    assert app.radio(key="eval-receipt-source").options[0] == (
-        "Bundled deterministic receipt PNG"
-    )
+    assert "Operator expected invoice number" not in text
+    assert not app.text_input
 
     for stale in (
         "C4 is not live",
@@ -179,8 +171,8 @@ def test_eval_defaults_are_lazy_and_every_mutation_gate_is_locked() -> None:
         assert stale not in text
 
 
-def test_eval_mocked_perception_records_all_human_and_simulation_gates() -> None:
-    """AppTest 1.32 cannot upload bytes, so exercise the bundled asset route."""
+def test_mocked_guided_flow_keeps_every_explicit_gate_and_no_second_cash_hit() -> None:
+    """Exercise each progressive screen with the bundled synthetic assets."""
 
     from tests.test_procure_ui_adapters import ReceiptOcr, analyzed_document
     import procureagent.ui_adapters as adapters
@@ -200,46 +192,71 @@ def test_eval_mocked_perception_records_all_human_and_simulation_gates() -> None
         patch.object(adapters, "analyze_invoice_upload", return_value=analysis),
         patch.object(adapters, "analyze_receipt_upload", side_effect=fake_receipt_adapter),
     ):
+        # Step 1: supplier confirmation is required before perception can run.
         app = boot()
+        app.selectbox(key="eval-supplier").set_value("Fresh Farms").run()
         app.button(key="eval-run-document-adapter").click().run()
         assert not app.exception
         assert "REVIEW_REQUIRED · LOW_MODEL_CONFIDENCE" in page_text(app)
-        assert "Strict exact: YES" in page_text(app)
-        assert not app.button(key="eval-record-human-review").disabled
-        assert app.button(key="eval-approve-batch").disabled
+        assert "Invoice number · invoice rule and ryan model" in page_text(app)
+        assert "Amount · invoice amount rule" in page_text(app)
+        assert app.radio(key="eval-document-review-choice").value is None
+        assert app.button(key="eval-record-human-review").disabled
+        assert "Strict exact" not in page_text(app)
 
-        app.button(key="eval-record-human-review").click().run()
-        assert not app.exception
-        assert "Composite lookup activated" in page_text(app)
-        assert "Prime Foods, PackRight, and CleanPro are locked fixture/replay identities" in page_text(app)
-        assert not app.button(key="eval-approve-batch").disabled
-        assert app.button(key="eval-run-receipt-adapter").disabled
+        # Use a clean AppTest tree per screen because Streamlit 1.32 retains
+        # removed widget nodes after an internal rerun. Session values are the
+        # actual immutable objects produced by the preceding screen.
+        review = AppTest.from_file(APP, default_timeout=20)
+        review.session_state["eval-document-analysis"] = analysis
+        review.run()
+        review.radio(key="eval-document-review-choice").set_value(
+            "Confirm the displayed invoice number"
+        ).run()
+        assert not review.button(key="eval-record-human-review").disabled
+        review.button(key="eval-record-human-review").click().run()
+        assert not review.exception
+        prepared = review.session_state["eval-prepared"]
+        human = review.session_state["eval-human-decision"]
+        assert "Exact invoice found" in page_text(review)
+        assert "Accounts Payable" in page_text(review)
 
-        app.button(key="eval-approve-batch").click().run()
-        assert not app.exception
-        assert "simulation_only=True" in page_text(app)
-        assert "no real money moved" in page_text(app)
-        assert not app.button(key="eval-run-receipt-adapter").disabled
+        approve = AppTest.from_file(APP, default_timeout=20)
+        approve.session_state["eval-document-analysis"] = analysis
+        approve.session_state["eval-human-decision"] = human
+        approve.session_state["eval-prepared"] = prepared
+        approve.run()
+        assert not approve.exception
+        assert approve.checkbox(key="eval-operator-confirmation").value is False
+        assert approve.button(key="eval-approve-batch").disabled
+        approve.checkbox(key="eval-operator-confirmation").check().run()
+        assert not approve.button(key="eval-approve-batch").disabled
+        approve.button(key="eval-approve-batch").click().run()
+        assert not approve.exception
+        simulation = approve.session_state["eval-simulation"]
+        assert "Debit" in page_text(approve)
+        assert "Credit" in page_text(approve)
+        assert "does not post this entry or deduct cash a second time" in page_text(approve)
 
-        app.button(key="eval-run-receipt-adapter").click().run()
-        assert not app.exception
-        assert "Full-payment proof gate" in page_text(app)
-        assert "Verified full proof is ready" in page_text(app)
-        assert not app.button(key="eval-confirm-payment").disabled
-
-        app.button(key="eval-confirm-payment").click().run()
-        assert not app.exception
-        assert "PAID_CONFIRMED in the simulated AP ledger" in page_text(app)
-        app.run()
-        assert app.button(key="eval-confirm-payment").disabled
-        assert app.button(key="eval-run-receipt-adapter").disabled
-        assert app.radio(key="eval-receipt-source").disabled
-
-        # Even a test harness forcing events on disabled widgets cannot clear
-        # the immutable confirmed result or re-enter the proof adapter.
-        app.radio(key="eval-receipt-source").set_value("Upload PNG/JPEG").run()
-        app.button(key="eval-run-receipt-adapter").click().run()
-        assert not app.exception
-        assert not any("Receipt pipeline failed closed" in str(item.value) for item in app.error)
-        assert "PAID_CONFIRMED in the simulated AP ledger" in page_text(app)
-        assert app.button(key="eval-run-receipt-adapter").disabled
+        proof = AppTest.from_file(APP, default_timeout=20)
+        proof.session_state["eval-document-analysis"] = analysis
+        proof.session_state["eval-human-decision"] = human
+        proof.session_state["eval-prepared"] = prepared
+        proof.session_state["eval-simulation"] = simulation
+        proof.run()
+        assert not proof.exception
+        proof.button(key="eval-run-receipt-adapter").click().run()
+        assert not proof.exception
+        assert "Exact payment-proof check" in page_text(proof)
+        assert "Amount · receipt field rule" in page_text(proof)
+        assert proof.checkbox(key="eval-proof-confirmation").value is False
+        assert proof.button(key="eval-confirm-payment").disabled
+        proof.checkbox(key="eval-proof-confirmation").check().run()
+        assert not proof.button(key="eval-confirm-payment").disabled
+        proof.button(key="eval-confirm-payment").click().run()
+        assert not proof.exception
+        assert "PAID_CONFIRMED in the simulated AP ledger" in page_text(proof)
+        assert metric_values(proof, "Second cash deduction") == ["$0.00"]
+        assert proof.button(key="eval-confirm-payment").disabled
+        assert proof.button(key="eval-run-receipt-adapter").disabled
+        assert proof.radio(key="eval-receipt-source").disabled

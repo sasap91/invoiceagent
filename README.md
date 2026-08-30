@@ -8,31 +8,30 @@ It is a controlled hackathon demo. It does not connect to a bank, authorize mone
 
 ## The story in 30 seconds
 
-1. Upload a supplier invoice.
-2. Tesseract performs real local OCR.
-3. Ryan's local LayoutLMv3 specialist highlights the token it believes is the invoice number.
-4. Exact evidence checks fail closed when identity is uncertain.
-5. A visibly synthetic lookup adds the amount, due date, inventory, and supplier context.
-6. A deterministic policy proposes **PAY**, **DEFER**, or **VERIFY**; a verifier and a person govern the simulated action.
-7. ProcureGym shows the restaurant consequence and compares the proposal with Earliest Due First.
-8. Upload a full-payment receipt. OCR plus deterministic rules—not Ryan's model—must match supplier, invoice, full amount, and currency before the demo ledger says `PAID_CONFIRMED`.
+The primary demo is one guided four-step path:
+
+1. **Read invoice.** Choose the bundled Fresh Farms PNG or upload PNG/JPEG. Tesseract produces every OCR token, confidence, and box. Ryan's local LayoutLMv3 specialist labels the invoice-number token only; the displayed invoice amount comes from OCR plus a separate deterministic total-anchor rule.
+2. **Confirm and plan.** The document gate fails closed when identity is uncertain, so the operator must **CONFIRM**, **CORRECT**, or **REJECT**. Only a confirmed composite identity unlocks the synthetic AP lookup and the explained **PAY / DEFER / VERIFY** plan.
+3. **Approve simulated payment.** The verifier checks the full daily batch and an explicit operator click advances ProcureGym. In accounting terms the simulation records **Dr Accounts Payable / Cr Cash** once; no bank, ERP, or accounting system is connected.
+4. **Verify receipt.** Choose the bundled receipt or upload PNG/JPEG. Tesseract plus the deterministic receipt parser—not Ryan's model—extracts and grounds supplier, invoice, full amount, currency, paid date, and receipt ID. Exact proof changes the demo status to `PAID_CONFIRMED`; it does **not** deduct cash a second time.
 
 An invoice from a supplier is **Accounts Payable**: money the restaurant owes. The matching receipt is proof for this simulated payment lifecycle. Accounts Receivable and partial payments are outside the MVP.
 
 ```mermaid
 flowchart LR
-    A[Invoice image] --> B[Tesseract OCR]
-    B --> C[LayoutLMv3 invoice-token specialist]
-    C --> D{Evidence gate}
-    D -->|verified| E[Synthetic supplier lookup]
-    D -->|uncertain| R[Human review]
-    E --> F[PAY / DEFER / VERIFY policy]
-    F --> G[Rules + operator]
-    G --> H[ProcureGym simulation]
-    H --> I[Receipt upload]
-    I --> J[OCR + deterministic proof gate]
-    J -->|exact full match| K[PAID_CONFIRMED]
-    J -->|mismatch| R
+    A[1 · Invoice image] --> B[Tesseract: every token + box]
+    B --> C[LayoutLMv3: invoice number only]
+    B --> M[Deterministic invoice-amount rule]
+    C --> D{2 · Evidence + human confirmation}
+    M --> D
+    D -->|confirmed identity| E[Synthetic AP lookup + plan]
+    D -->|uncertain| R[Correct or reject]
+    E --> F{3 · Verifier + operator approval}
+    F --> G[ProcureGym: Dr AP / Cr Cash once]
+    G --> H[4 · Receipt image]
+    H --> I[Tesseract + deterministic parser]
+    I -->|exact full proof| J[PAID_CONFIRMED; no second cash deduction]
+    I -->|mismatch| K[AP status remains open]
 ```
 
 ![ProcureAgent dashboard](docs/assets/procureagent-dashboard.png)
@@ -43,12 +42,15 @@ flowchart LR
 |---|---|---|
 | Invoice OCR | Tesseract 5 | OCR is separate from the model |
 | Invoice number | [`ryanznie/layoutlmv3-lora-invoice-number`](https://huggingface.co/ryanznie/layoutlmv3-lora-invoice-number) | Supervised token classifier; it does not extract amount or choose payments |
-| Business fields | Immutable synthetic lookup | Looked up, never attributed to the model |
+| Invoice amount evidence | Tesseract + deterministic total-anchor rule | Displayed from grounded OCR; never attributed to LayoutLMv3 |
+| AP and restaurant fields | Immutable synthetic lookup | Canonical payable amount, due date, inventory, and criticality are looked up after identity confirmation |
 | Recommendation | Criticality-Aware Greedy v1 | Deterministic P0 policy, not a trained RL policy |
 | Safety | Batch verifier + explicit operator decision | No unapproved state mutation |
-| Consequence | Seeded ProcureGym | Simulation only |
-| Receipt proof | Tesseract + anchored deterministic rules | No receipt-model claim; exact full match only |
+| Consequence | Seeded ProcureGym | Simulation records Dr AP / Cr Cash once; no real ledger or money movement |
+| Receipt proof | Tesseract + deterministic receipt parser and proof gate | Changes AP lifecycle status only; no receipt-model claim and no second cash deduction |
 | Router Lab | Constrained contextual-bandit experiment | P1 lab; no improvement claim without held-out evidence |
+
+Every OCR word remains available in the guided screen with its confidence, normalized box, business label, and source. The compact story is the default; expand **Technical evidence** to inspect raw OCR, token provenance, model version/latency/scores, deterministic-rule evidence, hashes, verifier checks, and deployment provenance.
 
 ### Captured real-model proof
 
@@ -70,7 +72,7 @@ python3.12 -m venv .venv-model
 ./scripts/run_demo.sh
 ```
 
-Open <http://127.0.0.1:8501> and use the **/eval lab**. The first model load downloads the base model and adapter, so warm it once before presenting.
+Open <http://127.0.0.1:8501> and follow the four-step guided demo: **Read invoice → Confirm & plan → Approve simulation → Verify receipt**. The first model load downloads the base model and adapter, so warm it once before presenting. Technical evidence is available in the expandable evidence panels without interrupting the main story.
 
 To expose the running Mac through an ephemeral Cloudflare URL:
 
@@ -85,6 +87,7 @@ Useful recording fixtures:
 - [`fresh_farms_invoice.png`](data/procureagent/assets/fresh_farms_invoice.png)
 - [`fresh_farms_payment_receipt.png`](data/procureagent/assets/fresh_farms_payment_receipt.png)
 - [`receipt_provenance.json`](data/procureagent/assets/receipt_provenance.json)
+- [`model_smoke_v1.json`](data/procureagent/eval/model_smoke_v1.json)
 - [`procureagent-dashboard.png`](docs/assets/procureagent-dashboard.png)
 - [`sundai-thumbnail.png`](docs/assets/sundai-thumbnail.png) — 1200×630 card image
 
@@ -106,7 +109,7 @@ HF_HUB_DISABLE_PROGRESS_BARS=1 \
   --output data/procureagent/eval/acceptance_live_v1.json
 ```
 
-Freeze evidence: **192 passed, 1 intentionally opt-in skip**; offline acceptance **9/9**; real-model acceptance **10/10**. The safety harness blocks **6/6** action/governance attacks and **8/8** receipt ambiguity, mismatch, duplicate, and forgery attacks.
+Current evidence: **208 passed, 2 intentionally opt-in real-Tesseract smokes skipped** in the default run; the focused smoke run passes **32/32** with both enabled. Offline acceptance is **9/9** and real-model acceptance is **10/10**. The safety harness blocks **6/6** action/governance attacks and **8/8** receipt ambiguity, mismatch, duplicate, and forgery attacks.
 
 One real checkpoint smoke:
 
@@ -117,18 +120,11 @@ HF_HUB_DISABLE_PROGRESS_BARS=1 \
 
 The project keeps missing predictions in the denominator, separates fixture replay from live execution, and does not turn model confidence into a claimed probability of correctness.
 
-## Deployment from Sasa's GitHub repo
+## Permanent deployment
 
-The repository is prepared for Streamlit Community Cloud:
+The preferred non-Streamlit-hosting path is the included Docker container on **Google Cloud Run**. A Firebase project is also a Google Cloud project, but Firebase Hosting by itself is static and cannot execute this Python/Tesseract/PyTorch runtime. Follow the [Cloud Run deployment guide](docs/CLOUD_RUN_DEPLOY.md) after the owner approves a dedicated project and billing account.
 
-- Repository: `sasap91/invoiceagent`
-- Branch: `main`
-- Entrypoint: `procure_app.py`
-- Python: `3.12`
-- `packages.txt` installs Tesseract
-- `requirements.txt` installs the app and model runtime
-
-Streamlit requires a repository administrator to create the app. Sasa must perform the initial **Create app** click; subsequent pushes redeploy automatically. The included `Dockerfile` is the portable fallback for any container host.
+Streamlit Community Cloud remains an optional fastest path for a repository administrator; [Sasa's one-time handoff](docs/SASA_STREAMLIT_DEPLOY.md) is retained in case the team chooses it. Until either permanent URL is created and verified, a `trycloudflare.com` Quick Tunnel is only a temporary, public, unauthenticated fallback: its URL changes on restart, it has no uptime guarantee, the host Mac must stay awake, and it must carry synthetic fixtures only.
 
 ## Optional Fal receipt generation
 
