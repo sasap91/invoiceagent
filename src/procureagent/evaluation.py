@@ -523,7 +523,16 @@ def _bounded_schedule_oracle(scenario: ProcureScenario) -> ScheduleOracleResult:
             for invoice, payment_day in zip(payable, payment_days)
             if payment_day is not None
         )
-        if committed_minor > scenario.initial_state.cash_minor:
+        # Admissible pre-filter only: the true per-day legality check is
+        # verify_batch inside _run_oracle_candidate.  The budget must include
+        # simulated revenue, otherwise a schedule that is affordable precisely
+        # because it waits for inflow is discarded before it is ever simulated,
+        # and the "optimum" comes back worse than a policy actually achieves.
+        horizon_budget_minor = (
+            scenario.initial_state.cash_minor
+            + scenario.daily_cash_inflow_minor * scenario.horizon_days
+        )
+        if committed_minor > horizon_budget_minor:
             continue
         schedule = {
             invoice.identity: payment_day

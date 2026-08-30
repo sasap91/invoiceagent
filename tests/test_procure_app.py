@@ -403,3 +403,117 @@ def test_mocked_guided_flow_keeps_every_explicit_gate_and_no_second_cash_hit() -
         assert metric_values(proof, "Remaining open AP") == ["$2,200.00"]
         assert metric_values(proof, "Paid · awaiting proof") == ["$2,500.00"]
         assert metric_values(proof, "Completed invoices") == ["1"]
+
+
+def test_source_citations_point_at_the_code_they_claim() -> None:
+    """The evidence panel renders source by hardcoded line number.
+
+    Editing an adapter shifts those ranges silently, so the panel would show the
+    wrong function under a confident label. That is a credibility bug in the one
+    panel built to prove "this is the real source", so pin it.
+    """
+
+    import re
+
+    repo_root = Path(__file__).resolve().parents[1]
+    app_text = (repo_root / "procure_app.py").read_text(encoding="utf-8")
+    citations = re.findall(
+        r'\("([^"]+)",\s*"(src/[^"]+\.py)",\s*(\d+),\s*(\d+)\)', app_text
+    )
+    assert citations, "expected the evidence panel to cite source ranges"
+
+    for label, relative, start, end in citations:
+        lines = (repo_root / relative).read_text(encoding="utf-8").splitlines()
+        start, end = int(start), int(end)
+        assert 0 < start <= end <= len(lines), f"{label}: {relative}:{start}-{end} out of range"
+        head = lines[start - 1].strip()
+        assert head.startswith(("def ", "class ", "@")), (
+            f"{label} cites {relative}:{start}, which is {head!r} rather than a "
+            "definition; the range has drifted"
+        )
+
+
+def _flow_through_receipt():
+    """Drive the real adapters to a confirmed payment, returning session objects."""
+
+    from tests.test_procure_ui_adapters import ReceiptOcr, analyzed_document
+    from procureagent.contracts import DocumentReviewDecision, PaymentProofSource
+    from procureagent.ui_adapters import (
+        analyze_receipt_upload,
+        approve_and_simulate,
+        confirm_verified_payment,
+        prepare_procurement,
+        record_human_identity_decision,
+    )
+
+    analysis = analyzed_document()
+    human = record_human_identity_decision(analysis, DocumentReviewDecision.CONFIRM)
+    prepared = prepare_procurement(human)
+    simulation = approve_and_simulate(prepared)
+    receipt = analyze_receipt_upload(
+        simulation,
+        (Path(__file__).resolve().parents[1] / RECEIPT_REL).read_bytes(),
+        filename="receipt.png",
+        source=PaymentProofSource.SYNTHETIC_FIXTURE_REPLAY,
+        provenance="test",
+        ocr_engine=ReceiptOcr(),
+    )
+    confirmed = confirm_verified_payment(receipt)
+    return {
+        "eval-document-analysis": analysis,
+        "eval-human-decision": human,
+        "eval-prepared": prepared,
+        "eval-simulation": simulation,
+        "eval-receipt-analysis": receipt,
+        "eval-confirmed-payment": confirmed,
+    }
+
+
+RECEIPT_REL = "data/procureagent/assets/fresh_farms_payment_receipt.png"
+
+
+def test_step_five_continues_the_week_and_reject_does_not_advance_time() -> None:
+    """The week keeps running after the first payment closes, still operator-gated."""
+
+    week = boot_with_flow(**_flow_through_receipt())
+    text = page_text(week)
+    assert "Continue the week" in text
+    assert "Proposal binds state version" in text
+
+    week.radio(key="eval-operator-decision").set_value("REJECT").run()
+    week.button(key="eval-reject-day").click().run()
+    assert not week.exception
+    after = page_text(week)
+    assert "ProcureGym.step was never called" in after
+    assert "(unchanged)" in after
+
+
+def test_step_five_modify_into_an_over_budget_pay_is_blocked() -> None:
+    """AC-09 on stage: a modified batch must clear the verifier again."""
+
+    week = boot_with_flow(**_flow_through_receipt())
+    week.radio(key="eval-operator-decision").set_value("MODIFY").run()
+    week.selectbox(key="eval-modify-packright").set_value("PAY").run()
+    week.button(key="eval-apply-modify").click().run()
+    assert not week.exception
+
+    text = page_text(week)
+    assert "BLOCKED" in text
+    assert "OVER_BUDGET" in text
+    week.radio(key="eval-operator-decision").set_value("APPROVE").run()
+    assert week.button(key="eval-approve-day").disabled
+
+
+def test_step_five_offers_the_revenue_week_because_the_locked_one_is_decided() -> None:
+    """The frozen scenario has no timing decision left; say so and offer one."""
+
+    week = boot_with_flow(**_flow_through_receipt())
+    text = page_text(week)
+    assert "PackRight's $1,500 never" in text or "never becomes affordable" in text
+
+    week.button(key="eval-week-cashflow").click().run()
+    assert not week.exception
+    episode = week.session_state["eval-episode"]
+    assert episode.environment.scenario.scenario_id == "restaurant_cashflow_v1"
+    assert episode.environment.scenario.daily_cash_inflow_minor == 25_000
+    assert "Payment timing · operator versus bounded oracle" in page_text(week)
