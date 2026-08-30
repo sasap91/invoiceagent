@@ -753,13 +753,13 @@ An interactive recording path accepts an invoice image, shows OCR tokens and Rya
 
 | Member | Current recorded status |
 |---|---|
-| **Sasa P** | Co-owner: C5 and C7; owner: C8 |
-| **Ryan Nie** | Co-owner: C1, C2, C4, C6, and C7; owner of the pre-existing invoice-number model asset |
-| **David / @cheezburgerz** | Co-owner: C1, C6, and C7 |
-| **Wilson / @skylarwooster** | Owner: C0, C3, and C5; co-owner: C7 |
-| **Dillon** | Co-owner: C1, C2, C4, C6, and C7 |
+| **[Sasa Phanitsombat](https://www.linkedin.com/in/sasakorn-p/)** | Co-owner: C5 and C7; owner: C8 |
+| **[Ryan Nie](https://www.linkedin.com/in/ryanznie/)** | Co-owner: C1, C2, C4, C6, and C7; owner of the pre-existing invoice-number model asset |
+| **[David Lee](https://www.linkedin.com/in/authordavidlee/) / @cheezburgerz** | Co-owner: C1, C6, and C7 |
+| **[Wilson Wu](https://www.linkedin.com/in/wilson1wu/) / @skylarwooster** | Owner: C0, C3, and C5; co-owner: C7 |
+| **[Dillon Johnson](https://www.linkedin.com/in/dillonqjohnson/)** | Co-owner: C1, C2, C4, C6, and C7 |
 
-These assignments were confirmed by Wilson on 30 August 2026. Multiple names indicate shared ownership; the co-owners must agree who signs off the category's done test. To protect the hackathon deadline, Wilson is also implementing the integrated reference path across C0–C8. This does not erase category ownership: compatible teammate work is merged against the frozen contracts, and the listed owner or co-owners still review and sign off their category.
+Public background summaries are maintained in the repository [README](../README.md#team). These assignments were confirmed by Wilson on 30 August 2026. Multiple names indicate shared ownership; the co-owners must agree who signs off the category's done test. To protect the hackathon deadline, Wilson is also implementing the integrated reference path across C0–C8. This does not erase category ownership: compatible teammate work is merged against the frozen contracts, and the listed owner or co-owners still review and sign off their category.
 
 ---
 

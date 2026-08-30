@@ -143,6 +143,18 @@ The script keeps `FAL_KEY` server-side and refuses to mark the generated image d
 
 ## Team and build ownership
 
+### Team
+
+| Member | Background and ProcureAgent contribution |
+|---|---|
+| [Sasa Phanitsombat](https://www.linkedin.com/in/sasakorn-p/) | AI product and evaluation leader with 10+ years across business and technology and an MIT Sloan background. Shaped the restaurant procurement use case and co-owns ProcureGym, the demo, and evaluation proof. |
+| [Ryan Nie](https://www.linkedin.com/in/ryanznie/) | Machine-learning practitioner and researcher with work spanning automated data quality and medical imaging. Created the LayoutLMv3 invoice-number asset and co-owns specialist extraction, routing, governance, and demo integration. |
+| [David Lee](https://www.linkedin.com/in/authordavidlee/) / `@cheezburgerz` | AI builder and author with Boston University study across computer science and neuroscience. Co-owns OCR/document ingestion, the Router Lab, and demo integration. |
+| [Dillon Johnson](https://www.linkedin.com/in/dillonqjohnson/) | Builder at the intersection of art and technology with MIT Sloan and Carnegie Mellon experience. Co-owns the document gate, recommendation governance, Router Lab, and demo integration. |
+| [Wilson Wu](https://www.linkedin.com/in/wilson1wu/) / `@skylarwooster` | AI engineering and finance/product builder with Georgia Tech computer-science and AWS experience. Owns the frozen contracts, supplier/restaurant state, integrated reference path, and deployment work. |
+
+### Build ownership
+
 | Category | Named owners |
 |---|---|
 | C0 — Contracts and fixtures | Wilson / `@skylarwooster` |
