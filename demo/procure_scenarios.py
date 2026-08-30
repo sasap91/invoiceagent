@@ -1,4 +1,4 @@
-"""Dependency-light display fallbacks for the ProcureAgent Streamlit UI.
+"""Dependency-light display fallbacks for the InvoiceAgent demo UI.
 
 The live app prefers the frozen ``procureagent`` contracts.  These mappings
 keep the overview renderable if an installation is incomplete; they never
@@ -11,6 +11,7 @@ from typing import Any, Final, Mapping
 
 
 FIXTURE_NOTICE: Final = (
+    "SYNTHETIC DEMO · NO AFFILIATION WITH SUGAR & SPICE THAI RESTAURANT. "
     "Locked-fixture overview — deterministic policy, verifier, and benchmark may run locally; "
     "OCR and the local model run only after an explicit /eval click. No procurement RL "
     "policy was trained; C6 is a separate development-only identity-router lab."
@@ -18,7 +19,12 @@ FIXTURE_NOTICE: Final = (
 
 PRIMARY_SCENARIO: Final[dict[str, Any]] = {
     "scenario_id": "restaurant_demo_v1",
-    "restaurant_name": "Sasa's Restaurant",
+    "restaurant_name": "Sugar & Spice Thai Restaurant",
+    "restaurant_context": "Cambridge, Massachusetts",
+    "restaurant_disclosure": (
+        "SYNTHETIC DEMO · NO AFFILIATION. The named restaurant did not provide "
+        "the documents or financial data."
+    ),
     "currency": "USD",
     "cash_minor": 500_000,
     "obligations_minor": 620_000,
@@ -26,7 +32,7 @@ PRIMARY_SCENARIO: Final[dict[str, Any]] = {
     "state_version": 1,
     "seed": 138,
     "day": 0,
-    "source": "C0 presentation fallback fixture",
+    "source": "C0 synthetic presentation fallback fixture",
 }
 
 

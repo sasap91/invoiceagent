@@ -165,7 +165,7 @@
       "details": {
         "artifact_kind": "hash_bound_captured_replay_not_a_live_run",
         "candidate": "FF-10482",
-        "current_invoice_sha256": "d25682a2b982a6552fac707c5c09d3ac2a588e27c82c820c55cb65f914bfe155",
+        "current_invoice_sha256": "dc0c8ea5055b5c9c9035e5498a7fc38b960759d604a29911b7fa5caab1c8b001",
         "document_gate": "REVIEW_REQUIRED",
         "expected": "FF-10482",
         "gate_reasons": [
@@ -183,8 +183,8 @@
           "FF-10482"
         ],
         "invoice_engine": "tesseract 5.5.3",
-        "invoice_quality": "0.9337552758461538461538461538",
-        "invoice_words": 65,
+        "invoice_quality": "0.9335610179761904761904761905",
+        "invoice_words": 84,
         "parsed_receipt": {
           "amount_minor": 150000,
           "currency": "USD",
@@ -195,8 +195,8 @@
           "supplier_id": "fresh_farms"
         },
         "receipt_engine": "tesseract 5.5.3",
-        "receipt_quality": "0.9555632297872340425531914894",
-        "receipt_words": 47
+        "receipt_quality": "0.9509770270909090909090909091",
+        "receipt_words": 55
       },
       "name": "real_local_ocr",
       "passed": true

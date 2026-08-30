@@ -1,7 +1,9 @@
 from dataclasses import FrozenInstanceError
 from decimal import Decimal
 import hashlib
+import json
 import os
+from pathlib import Path
 import shutil
 from types import SimpleNamespace
 import struct
@@ -20,6 +22,11 @@ from procureagent.ocr import (
     normalize_pixel_box,
     parse_tesseract_tsv,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
+RECEIPT_ASSET = ROOT / "data/procureagent/assets/fresh_farms_payment_receipt.png"
+RECEIPT_PROVENANCE = ROOT / "data/procureagent/assets/receipt_provenance.json"
 
 
 def _chunk(kind: bytes, payload: bytes) -> bytes:
@@ -48,6 +55,18 @@ def jpeg_bytes(width: int = 80, height: int = 60) -> bytes:
         + b"\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00"
     )
     return b"\xff\xd8" + frame + b"\xff\xd9"
+
+
+def test_synthetic_receipt_provenance_is_hash_bound_and_disclaims_affiliation():
+    provenance = json.loads(RECEIPT_PROVENANCE.read_text(encoding="utf-8"))
+
+    assert provenance["sha256"] == hashlib.sha256(
+        RECEIPT_ASSET.read_bytes()
+    ).hexdigest()
+    assert provenance["contains_real_payment_data"] is False
+    assert provenance["demonstration_customer"] == "Sugar & Spice Thai Restaurant"
+    assert provenance["real_restaurant_affiliation"] is False
+    assert "SYNTHETIC DEMO · NO AFFILIATION" in provenance["restaurant_disclosure"]
 
 
 TSV = "\n".join(

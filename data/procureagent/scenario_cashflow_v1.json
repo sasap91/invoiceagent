@@ -4,7 +4,7 @@
   "seed": 138,
   "horizon_days": 7,
   "restaurant": {
-    "restaurant_id": "main_street_bistro",
+    "restaurant_id": "sugar_and_spice_thai_restaurant",
     "day": 0,
     "state_version": 1,
     "cash_minor": 500000,
@@ -121,7 +121,7 @@
       "currency": "USD",
       "paid_date": "2026-08-30",
       "source": "synthetic_fixture_replay",
-      "provenance": "locked_demo_fixture_for_post_approval_upload",
+      "provenance": "locked_synthetic_demo_fixture_no_restaurant_affiliation",
       "status": "VERIFIED"
     }
   ],

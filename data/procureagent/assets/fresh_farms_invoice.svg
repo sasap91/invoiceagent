@@ -11,8 +11,9 @@
   <text x="546" y="316" font-family="Courier New, monospace" font-size="24" font-weight="700" fill="#17332d">Invoice No: FF-10482</text>
   <line x1="118" y1="411" x2="882" y2="411" stroke="#bcc9c3" stroke-width="2"/>
   <text x="118" y="459" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#17332d">BILL TO</text>
-  <text x="118" y="496" font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#374b45">Main Street Bistro</text>
-  <text x="118" y="530" font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#374b45">Cambridge, Massachusetts</text>
+  <text x="118" y="496" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#374b45">Sugar &amp; Spice Thai Restaurant</text>
+  <text x="118" y="530" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#374b45">Cambridge, Massachusetts</text>
+  <text x="118" y="558" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#a13d36">Synthetic demo customer · no affiliation</text>
   <text x="625" y="459" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#566963">Invoice Date: 2026-08-29</text>
   <text x="625" y="496" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#566963">Due Date: 2026-08-31</text>
   <text x="625" y="533" font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#566963">Currency: USD</text>
@@ -31,7 +32,9 @@
   <rect x="598" y="905" width="284" height="78" rx="10" fill="#e9f5ef"/>
   <text x="621" y="955" font-family="Arial, Helvetica, sans-serif" font-size="27" font-weight="700" fill="#17332d">TOTAL</text>
   <text x="750" y="955" font-family="Courier New, monospace" font-size="27" font-weight="700" fill="#17332d">$1,500.00</text>
-  <text x="118" y="1067" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#13795b">Payment unlocks the next scheduled produce delivery.</text>
-  <text x="118" y="1110" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#667a73">SYNTHETIC HACKATHON FIXTURE · NO REAL FINANCIAL OBLIGATION</text>
-  <text x="118" y="1171" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#667a73">Questions? demo@freshfarms.example</text>
+  <text x="118" y="1055" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#13795b">Payment unlocks the next scheduled produce delivery.</text>
+  <rect x="118" y="1082" width="764" height="72" rx="8" fill="#fff2f0" stroke="#a13d36" stroke-width="2"/>
+  <text x="500" y="1110" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="700" fill="#a13d36">SYNTHETIC DEMO · NO AFFILIATION</text>
+  <text x="500" y="1138" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#7c3430">Sugar &amp; Spice Thai Restaurant did not supply this data.</text>
+  <text x="118" y="1192" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#667a73">NO REAL FINANCIAL OBLIGATION · demo@freshfarms.example</text>
 </svg>

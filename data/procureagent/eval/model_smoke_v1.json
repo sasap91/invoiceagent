@@ -6,16 +6,16 @@
   "live_inference": true,
   "input": {
     "path": "data/procureagent/assets/fresh_farms_invoice.png",
-    "sha256": "d25682a2b982a6552fac707c5c09d3ac2a588e27c82c820c55cb65f914bfe155",
+    "sha256": "dc0c8ea5055b5c9c9035e5498a7fc38b960759d604a29911b7fa5caab1c8b001",
     "expected_invoice_number": "FF-10482",
     "synthetic_fixture": true
   },
   "ocr": {
     "engine": "tesseract 5.5.3",
     "page_segmentation_mode": 6,
-    "word_count": 65,
+    "word_count": 84,
     "anchored_rule_candidate": "FF-10482",
-    "mean_word_confidence": "0.9337552758461538461538461538"
+    "mean_word_confidence": "0.9335610179761904761904761905"
   },
   "model": {
     "adapter": "ryanznie/layoutlmv3-lora-invoice-number",
@@ -33,9 +33,9 @@
     "strict_exact": true,
     "candidate_span_count": 1,
     "selected_ocr_tokens": ["FF-10482"],
-    "entity_min_confidence": "0.6363860964775085",
-    "entity_mean_margin": "0.3509486615657806",
-    "latency_ms": "197.6",
+    "entity_min_confidence": "0.5884184837341309",
+    "entity_mean_margin": "0.2439324557781220",
+    "latency_ms": "228.9",
     "document_gate": "REVIEW_REQUIRED",
     "document_gate_reasons": ["LOW_MODEL_CONFIDENCE"]
   },

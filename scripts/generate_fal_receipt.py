@@ -29,17 +29,20 @@ PAYMENT RECEIPT
 Receipt ID: RCPT-FF-10482
 Supplier: Fresh Farms
 Supplier ID: fresh_farms
+Customer: Sugar & Spice Thai Restaurant
 Invoice Number: FF-10482
 Amount Paid: $1,500.00
 Currency: USD
 Paid Date: 2026-08-30
 Payment Status: PAID IN FULL
-SIMULATED HACKATHON FIXTURE - NO REAL PAYMENT
+SYNTHETIC DEMO - NO AFFILIATION
+NO REAL PAYMENT
 Centered receipt, generous margins, 4:5 portrait composition."""
 REQUIRED_OCR_VALUES = (
     "RCPT-FF-10482",
     "Fresh Farms",
     "fresh_farms",
+    "Sugar & Spice Thai Restaurant",
     "FF-10482",
     "1,500.00",
     "USD",
@@ -115,6 +118,12 @@ def main() -> int:
         "model": MODEL,
         "seed": args.seed,
         "contains_real_payment_data": False,
+        "demonstration_customer": "Sugar & Spice Thai Restaurant",
+        "real_restaurant_affiliation": False,
+        "restaurant_disclosure": (
+            "SYNTHETIC DEMO · NO AFFILIATION. The named restaurant did not "
+            "provide this receipt or any financial data."
+        ),
         "ocr_engine": "tesseract",
         "ocr_required_values": list(REQUIRED_OCR_VALUES),
         "ocr_missing_values": missing,
