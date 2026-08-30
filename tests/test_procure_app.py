@@ -615,7 +615,7 @@ def test_step_five_offers_the_revenue_week_because_the_locked_one_is_decided() -
     assert not week.exception
     episode = week.session_state["eval-episode"]
     assert episode.environment.scenario.scenario_id == "restaurant_cashflow_v1"
-    assert episode.environment.scenario.daily_cash_inflow_minor == 25_000
+    assert episode.environment.scenario.daily_cash_inflow_minor == 30_000
     assert "Payment timing · operator versus bounded oracle" in page_text(week)
 
 

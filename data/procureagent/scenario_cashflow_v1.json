@@ -7,7 +7,7 @@
     "restaurant_id": "sugar_and_spice_thai_restaurant",
     "day": 0,
     "state_version": 1,
-    "cash_minor": 500000,
+    "cash_minor": 400000,
     "currency": "USD"
   },
   "suppliers": [
@@ -26,6 +26,10 @@
     {
       "supplier_id": "cleanpro",
       "display_name": "CleanPro"
+    },
+    {
+      "supplier_id": "linen_co",
+      "display_name": "Linen Co"
     }
   ],
   "invoices": [
@@ -110,6 +114,26 @@
       "context_conflict_codes": [
         "CONFLICTING_SUPPLIER_STATUS"
       ]
+    },
+    {
+      "record_source": "synthetic_fixture_lookup",
+      "supplier_id": "linen_co",
+      "invoice_number": "LN-00042",
+      "category": "linen",
+      "amount_minor": 18000,
+      "currency": "USD",
+      "due_in_days": 2,
+      "inventory_days_remaining": 25,
+      "delivery_lead_days": 2,
+      "payment_unlocks_delivery": false,
+      "delivery_inventory_days": 0,
+      "supplier_criticality": "low",
+      "supplier_status": "active",
+      "payment_status": "unpaid",
+      "state_version": 1,
+      "late_fee_minor_per_day": 200,
+      "disruption_after_days_overdue": null,
+      "context_conflict_codes": []
     }
   ],
   "payment_proofs": [
@@ -142,5 +166,5 @@
       "included_in_obligations": false
     }
   ],
-  "daily_cash_inflow_minor": 25000
+  "daily_cash_inflow_minor": 30000
 }

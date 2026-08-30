@@ -302,8 +302,108 @@ def modify_batch(
     return replacement, decision
 
 
+
+# Standing authority: the operator delegates approval for small payments and
+# keeps it for large ones.  This is an *operator* policy, not a verifier change:
+# an auto-approved batch still passes the full verifier, and a BLOCKED batch is
+# never auto-approved.  It can only ever skip the human click, never a check.
+DEFAULT_AUTO_APPROVAL_LIMIT_MINOR = 50_000  # $500.00
+
+
+@dataclass(frozen=True, slots=True)
+class AutoApprovalDecision:
+    """Whether standing authority covers this batch, and what it does not."""
+
+    allowed: bool
+    limit_minor: int
+    committed_minor: int
+    over_limit: tuple[tuple[InvoiceIdentity, int], ...]
+    reason_codes: tuple[str, ...]
+
+    @property
+    def requires_operator(self) -> bool:
+        return not self.allowed
+
+
+def auto_approval_decision(
+    batch: DailyRecommendationBatch,
+    verification: VerifierDecision,
+    *,
+    limit_minor: int = DEFAULT_AUTO_APPROVAL_LIMIT_MINOR,
+) -> AutoApprovalDecision:
+    """Decide whether standing authority covers every payment in this batch.
+
+    Authority is per invoice, not per batch total: a single payment above the
+    limit sends the whole day to a person, because the thing an operator is
+    being asked to authorise is an individual supplier payment.
+    """
+
+    if not isinstance(batch, DailyRecommendationBatch):
+        raise GovernanceError("batch must be DailyRecommendationBatch")
+    if not isinstance(verification, VerifierDecision):
+        raise GovernanceError("verification must be VerifierDecision")
+    if not isinstance(limit_minor, int) or isinstance(limit_minor, bool) or limit_minor < 0:
+        raise GovernanceError("limit_minor must be a non-negative int of minor units")
+
+    pays = tuple(
+        item
+        for item in batch.recommendations
+        if item.action is ProcurementAction.PAY
+    )
+    committed = sum(item.amount_minor for item in pays)
+    over = tuple(
+        (item.identity, item.amount_minor)
+        for item in pays
+        if item.amount_minor > limit_minor
+    )
+
+    reasons: list[str] = []
+    if verification.result is VerifierResult.BLOCKED:
+        reasons.append("VERIFIER_BLOCKED")
+    if over:
+        reasons.append("ABOVE_AUTO_APPROVAL_LIMIT")
+    if not pays:
+        # Standing authority is delegated permission to *pay*. A day that pays
+        # nothing has nothing to authorise, and committing it still advances
+        # time, ages invoices, accrues fees and can disrupt a supplier -- so it
+        # stays with the operator rather than being swept through silently.
+        reasons.append("NO_PAYMENT_TO_AUTHORISE")
+
+    return AutoApprovalDecision(
+        allowed=not reasons,
+        limit_minor=limit_minor,
+        committed_minor=committed,
+        over_limit=over,
+        reason_codes=tuple(reasons),
+    )
+
+
+def auto_approve_batch(
+    batch: DailyRecommendationBatch,
+    verification: VerifierDecision,
+    verified_identities: Iterable[VerifiedInvoiceIdentity],
+    *,
+    decision_id: str | None = None,
+) -> ApprovedDailyBatch:
+    """Approve under standing authority, recorded so it stays distinguishable.
+
+    The decision ID is prefixed ``autopay`` so an automatic approval can never
+    be mistaken for a human click when the audit trail is read back.
+    """
+
+    return approve_batch(
+        batch,
+        verification,
+        verified_identities,
+        decision_id=decision_id or make_audit_id("autopay", batch.batch_id),
+    )
+
 __all__ = [
     "ApprovedDailyBatch",
+    "AutoApprovalDecision",
+    "DEFAULT_AUTO_APPROVAL_LIMIT_MINOR",
+    "auto_approval_decision",
+    "auto_approve_batch",
     "GovernanceError",
     "approve_batch",
     "modify_batch",

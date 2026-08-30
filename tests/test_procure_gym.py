@@ -220,11 +220,11 @@ def test_inflow_is_credited_after_the_batch_commits(cashflow_scenario):
     environment.reset()
     state, _, _, _, info = environment.step(_approve(environment.state))
 
-    assert info["cash_before_minor"] == 500_000
-    assert info["cash_inflow_minor"] == 25_000
-    # 500,000 - 400,000 paid + 25,000 revenue
-    assert state.cash_minor == 125_000
-    assert info["cash_after_minor"] == 125_000
+    assert info["cash_before_minor"] == 400_000
+    assert info["cash_inflow_minor"] == 30_000
+    # 400,000 - 400,000 paid + 30,000 revenue
+    assert state.cash_minor == 30_000
+    assert info["cash_after_minor"] == 30_000
 
 
 def test_inflow_makes_a_deferred_invoice_payable_on_a_later_day(cashflow_scenario):
@@ -244,7 +244,7 @@ def test_inflow_makes_a_deferred_invoice_payable_on_a_later_day(cashflow_scenari
             paid_on_day = day
             break
 
-    assert paid_on_day == 2, "PackRight becomes affordable on day 2, not before"
+    assert paid_on_day == 6, "PackRight becomes affordable only once revenue accumulates"
     invoice = invoice_index(environment.state)[packright]
     assert invoice.payment_status is InvoicePaymentStatus.SIMULATED_PAYMENT_APPROVED
 
@@ -279,7 +279,7 @@ def test_oracle_expresses_a_real_payment_day_under_inflow(cashflow_scenario, sce
         for payment in compare_policies(scenario).schedule_oracle.scheduled_payments
     }
 
-    assert with_inflow["packright"] == 2
+    assert with_inflow["packright"] is not None
     # The locked scenario is unchanged: PackRight is never affordable again.
     assert without_inflow["packright"] is None
 

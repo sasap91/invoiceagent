@@ -49,7 +49,11 @@ from .evaluation import (
 )
 from .governance import (
     ApprovedDailyBatch,
+    AutoApprovalDecision,
+    DEFAULT_AUTO_APPROVAL_LIMIT_MINOR,
     approve_batch,
+    auto_approval_decision,
+    auto_approve_batch,
     modify_batch,
     reject_batch,
     verify_batch,
@@ -656,6 +660,67 @@ def approve_and_simulate(
         truncated=truncated,
         info=info,
     )
+
+
+
+def advance_auto_approved_days(
+    episode: EpisodeSession,
+    *,
+    limit_minor: int = DEFAULT_AUTO_APPROVAL_LIMIT_MINOR,
+) -> tuple[list[SimulationRun], AutoApprovalDecision | None]:
+    """Commit every consecutive day that standing authority already covers.
+
+    Returns what was committed automatically, plus the decision that stopped the
+    run so the UI can say exactly which payment needs a person. The loop is
+    bounded by the horizon, and it stops on the first day that is blocked, needs
+    permission, or cannot be proposed -- it never advances past a decision a
+    human is supposed to make.
+    """
+
+    committed: list[SimulationRun] = []
+    stopped_by: AutoApprovalDecision | None = None
+
+    for _ in range(episode.horizon_days + 1):
+        if episode.finished:
+            break
+        try:
+            proposal = propose_day(
+                episode.environment, identity_ledger=episode.identity_ledger
+            )
+        except UiFlowError:
+            break
+        decision = auto_approval_decision(
+            proposal.batch, proposal.verification, limit_minor=limit_minor
+        )
+        if not decision.allowed:
+            stopped_by = decision
+            break
+        approved = auto_approve_batch(
+            proposal.batch,
+            proposal.verification,
+            proposal.verified_identities,
+            decision_id=make_audit_id(
+                "autopay", proposal.batch.batch_id, episode.environment.state.day
+            ),
+        )
+        environment = episode.environment
+        state_before = environment.state
+        state_after, reward, terminated, truncated, info = environment.step(approved)
+        run = SimulationRun(
+            prepared=proposal,
+            environment=environment,
+            approved_batch=approved,
+            state_before=state_before,
+            state_after=state_after,
+            reward=reward,
+            terminated=terminated,
+            truncated=truncated,
+            info=info,
+        )
+        episode.history.append(run)
+        committed.append(run)
+
+    return committed, stopped_by
 
 
 def modify_and_reverify(

@@ -105,15 +105,23 @@ The approved batch is interpreted as **Dr Accounts Payable—Fresh Farms $1,500 
 
 Paying the right supplier the right amount is only two thirds of the problem. The third is timing, and the locked scenario cannot show it: after the two critical suppliers there is $1,000 left, PackRight's $1,500 never becomes affordable again, and the bounded oracle independently agrees it should be paid **never**. Schedule regret is exactly `0.000`. The remaining days are deliberate no-ops, and the demo says so rather than clicking through them in silence.
 
-So a second scenario exists. [`scenario_cashflow_v1.json`](data/procureagent/scenario_cashflow_v1.json) is identical to the frozen fixture apart from **$250/day of simulated revenue**, credited after each committed batch so it can never fund a payment the verifier approved against this morning's cash:
+So a second scenario exists. [`scenario_cashflow_v1.json`](data/procureagent/scenario_cashflow_v1.json) keeps the frozen fixture's suppliers and adds two things: **$300/day of simulated revenue**, credited after each committed batch so it can never fund a payment the verifier approved against this morning's cash, and one genuinely small bill — Linen Co `LN-00042` at **$180** — so the standing-authority path is visible.
 
-| Day | Cash at planning | Agent's decision |
+| Day | Cash at planning | What happens |
 |---|---|---|
-| 0 | $5,000 | PAY Fresh Farms + Prime Foods · DEFER PackRight · VERIFY CleanPro |
-| 1 | $1,250 | DEFER PackRight — still unaffordable |
-| 2 | $1,500 | **PAY PackRight** — the day it fits |
+| 0 | $4,000 | **Asks permission** — Fresh Farms $1,500 and Prime Foods $2,500 are both above the limit |
+| 1 | $300 | **Pays Linen Co $180 on its own** — under the limit, no operator click |
+| 2–5 | rising | Operator commits each day; nothing is payable yet |
+| 6 | $1,620 | **Asks permission** — PackRight $1,500, the day it finally fits |
 
-The bounded schedule oracle independently chooses day 2. The frozen fixture is untouched: it stays SHA-256 pinned and loads through `load_locked_scenario`, while the cash-flow variant loads through the generic `load_scenario`.
+### Standing authority: pay small bills, ask about large ones
+
+The operator delegates approval up to a limit — **$500 per invoice** by default, adjustable in the UI — and keeps it above that. This can skip the operator *click*, never a *check*:
+
+- an auto-approved batch still passes the full verifier, unchanged
+- a `BLOCKED` batch is never auto-approved
+- a day that pays nothing still needs the operator, because standing authority delegates permission to **pay**, and advancing time still ages invoices, accrues late fees and can disrupt a supplier
+- every automatic approval is recorded with an `autopay` decision ID, so it can never be mistaken for a human click when the audit trail is read back
 
 Governance is demonstrable rather than only tested. **REJECT** records a decision and provably changes no state—the badge asserts `ProcureGym.step was never called` and the state version is unchanged. **MODIFY** mints a new batch ID and must clear the verifier again: promoting PackRight to PAY on day 1 returns `BLOCKED · OVER_BUDGET`, and promoting CleanPro returns `BLOCKED · UNRESOLVED_BUSINESS_CONTEXT`.
 
