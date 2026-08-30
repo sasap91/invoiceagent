@@ -62,7 +62,7 @@ flowchart LR
 | [Ryan Nie](https://www.linkedin.com/in/ryanznie/) | Machine-learning practitioner and researcher with work spanning automated data quality and medical imaging. Created the LayoutLMv3 invoice-number asset and co-owns specialist extraction, routing, governance, and demo integration. |
 | [David Lee](https://www.linkedin.com/in/authordavidlee/) / `@cheezburgerz` | AI builder and author with Boston University study across computer science and neuroscience. Co-owns OCR/document ingestion, the Router Lab, and demo integration. |
 | [Dillon Johnson](https://www.linkedin.com/in/dillonqjohnson/) | Builder at the intersection of art and technology with MIT Sloan and Carnegie Mellon experience. Co-owns the document gate, recommendation governance, Router Lab, and demo integration. |
-| [Wilson Wu](https://www.linkedin.com/in/wilson1wu/) / `@skylarwooster` | AI, finance, and product builder with a Duke MBA and Georgia Tech MS in Computer Science. Owns frozen contracts, supplier/restaurant state, the integrated reference path, and deployment work. |
+| [Wilson Wu](https://www.linkedin.com/in/wilson1wu/) / `@skylarwooster` | AI, finance, and product builder with a Duke MBA and Georgia Tech MS in Computer Science. |
 
 ### Build ownership
 
@@ -78,7 +78,7 @@ flowchart LR
 | C7 — UI and deployment | Wilson / `@skylarwooster`, Sasa P, Ryan Nie, Dillon, David / `@cheezburgerz` |
 | C8 — Evaluation and presentation proof | Sasa P |
 
-Wilson is building the integrated reference path for the deadline. Named owners retain review and sign-off, and compatible teammate work can merge against the frozen contracts. The complete [PRD](docs/PRD.md) defines those contracts, rewards, safety gates, acceptance criteria, and claims.
+Wilson is assembling the end-to-end demo for the deadline. Named owners retain review and sign-off, and compatible teammate work can merge through pull requests. The complete [PRD](docs/PRD.md) defines the interfaces, rewards, safety gates, acceptance criteria, and claims.
 
 ## Result
 
