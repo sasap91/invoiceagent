@@ -1,4 +1,4 @@
-# Deploy ProcureAgent to Google Cloud Run
+# Deploy InvoiceAgent to Google Cloud Run
 
 This is the preferred permanent host when the team does not want Streamlit Community Cloud. Firebase projects are Google Cloud projects underneath, but **Firebase Hosting alone cannot run this Python/Tesseract/PyTorch app**. Cloud Run builds the committed `Dockerfile`, runs the container, and returns a stable HTTPS URL.
 
@@ -7,13 +7,13 @@ This is the preferred permanent host when the team does not want Streamlit Commu
 Use a dedicated project; do not reuse an unrelated production Firebase project.
 
 ```bash
-gcloud projects create procureagent-sundai-2026 \
-  --name="ProcureAgent Sundai 2026"
-gcloud billing projects link procureagent-sundai-2026 \
+gcloud projects create invoiceagent-sundai-2026 \
+  --name="InvoiceAgent Sundai 2026"
+gcloud billing projects link invoiceagent-sundai-2026 \
   --billing-account=YOUR_APPROVED_BILLING_ACCOUNT
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
   artifactregistry.googleapis.com \
-  --project=procureagent-sundai-2026
+  --project=invoiceagent-sundai-2026
 ```
 
 Creating and billing-linking the project are external account changes. Run them only after the project owner approves the exact billing account.
@@ -25,8 +25,8 @@ From a clean clone of `sasap91/invoiceagent`:
 ```bash
 git switch main
 git pull --ff-only
-gcloud run deploy procureagent \
-  --project=procureagent-sundai-2026 \
+gcloud run deploy invoiceagent \
+  --project=invoiceagent-sundai-2026 \
   --region=us-east1 \
   --source=. \
   --allow-unauthenticated \
@@ -55,8 +55,8 @@ No secret is required for the bundled demo. Do not add `FAL_KEY`, banking creden
 To stop paying for an always-warm instance while retaining the URL:
 
 ```bash
-gcloud run services update procureagent \
-  --project=procureagent-sundai-2026 \
+gcloud run services update invoiceagent \
+  --project=invoiceagent-sundai-2026 \
   --region=us-east1 \
   --min=0
 ```

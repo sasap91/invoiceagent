@@ -6,9 +6,10 @@ import zlib
 
 import pytest
 
-from invoiceagent.extraction import EntitySpan, InvoiceNumberResult
+from invoiceagent.extraction import EntitySpan, InvoiceNumberResult, TokenPrediction
 from procureagent.contracts import (
     BoundingBox,
+    ContractValidationError,
     DocumentStatus,
     InvoiceIdentity,
     InvoiceNumberCandidate,
@@ -19,6 +20,7 @@ from procureagent.document import (
     InvoiceModelRunStatus,
     ModelInvoiceCandidate,
     RyanInvoiceAdapter,
+    align_model_token_predictions,
     anchored_invoice_candidates,
     gate_document_identity,
     to_ryan_ocr,
@@ -203,6 +205,61 @@ def test_pinned_model_provenance_fits_the_public_proposal_contract():
     )
 
     assert proposal.model_version == pinned.model_version
+
+
+def test_token_predictions_align_by_explicit_ocr_index_text_and_box():
+    _, ocr = make_ocr()
+    word = ocr.words[2]
+    prediction = TokenPrediction(
+        word_index=2,
+        word=word.text,
+        box=(
+            word.normalized_box.x0,
+            word.normalized_box.y0,
+            word.normalized_box.x1,
+            word.normalized_box.y1,
+        ),
+        label="B-INVOICE_ID",
+        confidence=Decimal("0.96"),
+        margin=Decimal("0.60"),
+    )
+    run = replace(model_run(ocr), token_predictions=(prediction,))
+
+    aligned = align_model_token_predictions(run, ocr)
+
+    assert len(aligned) == len(ocr.words)
+    assert aligned[2] == prediction
+    assert all(item is None for index, item in enumerate(aligned) if index != 2)
+
+
+@pytest.mark.parametrize("changed_field", ("index", "text", "box"))
+def test_token_prediction_alignment_fails_closed(changed_field):
+    _, ocr = make_ocr()
+    word = ocr.words[2]
+    values = {
+        "word_index": 2,
+        "word": word.text,
+        "box": (
+            word.normalized_box.x0,
+            word.normalized_box.y0,
+            word.normalized_box.x1,
+            word.normalized_box.y1,
+        ),
+        "label": "B-INVOICE_ID",
+        "confidence": Decimal("0.96"),
+        "margin": Decimal("0.60"),
+    }
+    if changed_field == "index":
+        values["word_index"] = len(ocr.words)
+    elif changed_field == "text":
+        values["word"] = "NOT-IN-OCR"
+    else:
+        values["box"] = (0, 0, 1, 1)
+    prediction = TokenPrediction(**values)
+    run = replace(model_run(ocr), token_predictions=(prediction,))
+
+    with pytest.raises(ContractValidationError, match="token prediction"):
+        align_model_token_predictions(run, ocr)
 
 
 def test_ryan_adapter_records_ungrounded_model_output_instead_of_trusting_indices():

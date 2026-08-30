@@ -1,0 +1,11 @@
+{
+  "schema_version": "invoiceagent-visual-provenance-v1",
+  "asset": "invoiceagent-restaurant-hero.jpg",
+  "created_on": "2026-08-30",
+  "generator": "OpenAI built-in image generation",
+  "use": "InvoiceAgent guided-demo hero",
+  "representation": "Original illustrative synthetic restaurant setting; not a photograph of Sugar & Spice Thai Restaurant or any other real venue",
+  "affiliation": false,
+  "contains_real_restaurant_data": false,
+  "prompt_summary": "Warm independent Thai restaurant in a generic Porter Square-inspired setting, food and supplier paperwork on the right, negative space on the left, forest green and terracotta palette, no people, logos, trademarks, readable financial data, or recognizable real location."
+}

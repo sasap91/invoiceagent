@@ -26,16 +26,36 @@ from .core import (
 )
 
 
-DEFAULT_ADAPTER_MODEL = os.environ.get(
+def _configured_model(name: str, default: str) -> str:
+    value = os.environ.get(name)
+    return default if value is None or not value.strip() else value.strip()
+
+
+def _configured_revision(name: str, default: str) -> str | None:
+    value = os.environ.get(name)
+    return default if value is None else (value.strip() or None)
+
+
+DEFAULT_ADAPTER_MODEL = _configured_model(
     "INVOICEAGENT_ADAPTER_MODEL", "ryanznie/layoutlmv3-lora-invoice-number"
 )
-DEFAULT_BASE_MODEL = os.environ.get("INVOICEAGENT_BASE_MODEL", "microsoft/layoutlmv3-base")
-DEFAULT_ADAPTER_REVISION = os.environ.get(
+DEFAULT_BASE_MODEL = _configured_model(
+    "INVOICEAGENT_BASE_MODEL", "microsoft/layoutlmv3-base"
+)
+DEFAULT_ADAPTER_REVISION = _configured_revision(
     "INVOICEAGENT_ADAPTER_REVISION", "7dc28f5a3b14aa100ba432ee1b0a6cac6c7b2c5c"
-) or None
-DEFAULT_BASE_REVISION = os.environ.get(
+)
+DEFAULT_BASE_REVISION = _configured_revision(
     "INVOICEAGENT_BASE_REVISION", "cfbbbff0762e6aab37086fdd4739ad14fe7d5db4"
-) or None
+)
+
+
+def public_model_ref(model: str, revision: str | None) -> str:
+    """Format provenance without publishing an operator's absolute local path."""
+
+    label = os.path.basename(os.path.normpath(model)) if os.path.isabs(model) else model
+    label = label or "local-model"
+    return f"{label}@{revision}" if revision else label
 
 _DATE_LIKE = re.compile(r"^(?:\d{1,4}[-/.]){2}\d{1,4}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/#:-]{2,127}$")
@@ -295,13 +315,43 @@ def decode_bio_spans(
 
 @dataclass(frozen=True, slots=True)
 class TokenPrediction:
-    """One word's raw model output, kept even when it is not part of any span."""
+    """One OCR word actually evaluated by LayoutLMv3.
 
+    Truncated words are deliberately absent instead of being synthesized as
+    background predictions. ``word_index`` binds the result back to immutable
+    OCR text and geometry.
+    """
+
+    word_index: int
     word: str
     box: tuple[int, int, int, int]
     label: str
     confidence: Decimal
     margin: Decimal
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.word_index, bool)
+            or not isinstance(self.word_index, int)
+            or self.word_index < 0
+        ):
+            raise ValidationError("token word_index must be a non-negative integer")
+        if not isinstance(self.word, str) or not self.word.strip() or self.word != self.word.strip():
+            raise ValidationError("token word must be non-empty OCR text without outer whitespace")
+        object.__setattr__(self, "box", _box(self.box, self.word_index))
+        if not isinstance(self.label, str) or not self.label.strip() or len(self.label) > 64:
+            raise ValidationError("token label must be non-empty text up to 64 characters")
+        object.__setattr__(self, "label", self.label.strip())
+        object.__setattr__(
+            self,
+            "confidence",
+            _probability(self.confidence, f"token confidence {self.word_index}"),
+        )
+        object.__setattr__(
+            self,
+            "margin",
+            _probability(self.margin, f"token margin {self.word_index}"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +362,31 @@ class InvoiceNumberResult:
     model_name: str
     latency_ms: Decimal
     token_predictions: tuple[TokenPrediction, ...] = ()
+
+    def __post_init__(self) -> None:
+        spans = tuple(self.spans)
+        if not all(isinstance(span, EntitySpan) for span in spans):
+            raise ValidationError("result spans must be EntitySpan values")
+        object.__setattr__(self, "spans", spans)
+        if not isinstance(self.model_name, str) or not self.model_name.strip():
+            raise ValidationError("result model_name is required")
+        if (
+            not isinstance(self.latency_ms, Decimal)
+            or not self.latency_ms.is_finite()
+            or self.latency_ms < 0
+        ):
+            raise ValidationError("result latency_ms must be a non-negative Decimal")
+        predictions = tuple(self.token_predictions)
+        if not all(isinstance(item, TokenPrediction) for item in predictions):
+            raise ValidationError("result token_predictions are invalid")
+        indices = tuple(item.word_index for item in predictions)
+        if indices != tuple(sorted(set(indices))):
+            raise ValidationError("token predictions must have unique increasing OCR indices")
+        if predictions:
+            evaluated = set(indices)
+            if any(not set(span.word_indices).issubset(evaluated) for span in spans):
+                raise ValidationError("every entity span must reference evaluated OCR words")
+        object.__setattr__(self, "token_predictions", predictions)
 
     @property
     def selected(self) -> EntitySpan | None:
@@ -401,8 +476,8 @@ class LayoutLMv3InvoiceExtractor:
         *,
         adapter_model: str = DEFAULT_ADAPTER_MODEL,
         base_model: str = DEFAULT_BASE_MODEL,
-        adapter_revision: str = DEFAULT_ADAPTER_REVISION,
-        base_revision: str = DEFAULT_BASE_REVISION,
+        adapter_revision: str | None = DEFAULT_ADAPTER_REVISION,
+        base_revision: str | None = DEFAULT_BASE_REVISION,
         device: str | None = None,
         max_length: int = 512,
     ) -> None:
@@ -505,21 +580,21 @@ class LayoutLMv3InvoiceExtractor:
         spans = decode_bio_spans(ocr.words, ocr.boxes, labels, confidences, margins)
         token_predictions = tuple(
             TokenPrediction(
-                word=word,
+                word_index=index,
+                word=ocr.words[index],
                 box=tuple(ocr.boxes[index]),
-                label=labels[index],
-                confidence=confidences[index],
-                margin=margins[index],
+                label=label,
+                confidence=confidence,
+                margin=max(margin, Decimal("0")),
             )
-            for index, word in enumerate(ocr.words)
+            for index, (label, confidence, margin) in sorted(per_word.items())
         )
         latency = Decimal(str((perf_counter() - started) * 1000)).quantize(Decimal("0.1"))
+        adapter_ref = public_model_ref(self.adapter_model, self.adapter_revision)
+        base_ref = public_model_ref(self.base_model, self.base_revision)
         return InvoiceNumberResult(
             spans=spans,
-            model_name=(
-                f"{self.adapter_model}@{self.adapter_revision} "
-                f"(base {self.base_model}@{self.base_revision}) on {self.device}"
-            ),
+            model_name=f"{adapter_ref} (base {base_ref}) on {self.device}",
             latency_ms=latency,
             token_predictions=token_predictions,
         )

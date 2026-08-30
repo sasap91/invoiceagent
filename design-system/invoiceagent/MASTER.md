@@ -1,4 +1,10 @@
-# ProcureAgent design system
+# InvoiceAgent design system
+
+**Public signature:** InvoiceAgent by Sundai
+
+**Personalized demo context:** Sugar & Spice Thai Restaurant, Porter Square, Cambridge. Every use is an illustrative synthetic workflow with no affiliation and no real restaurant data.
+
+**Hero asset:** `data/procureagent/assets/invoiceagent-restaurant-hero.jpg` is an original generated illustration. It must be labeled as illustrative and must never be described as a photograph of Sugar & Spice.
 
 Generated with the UI UX Pro Max workflow and then corrected against the implemented demo.
 
@@ -13,18 +19,20 @@ Generated with the UI UX Pro Max workflow and then corrected against the impleme
 
 | Role | Value |
 |---|---|
-| Background | `#F5F5F0` |
+| Background | `#F8F7F3` |
 | Surface | `#FFFFFF` |
-| Ink | `#102A2A` |
-| Muted ink | `#4C635F` |
-| Primary teal | `#08778A` |
+| Ink | `#183029` |
+| Muted ink | `#52645F` |
+| Brand green | `#153F35` |
+| Primary terracotta | `#A6421F` |
+| Proof teal | `#08778A` |
 | Success | `#176B52` |
 | Warning | `#8B5A12` |
 | Danger | `#9B3E37` |
 | Border | `#DCE4DF` |
 
-- Headings: Lora.
-- Body and controls: Raleway.
+- Headings: Fraunces.
+- Body and controls: Manrope.
 - Spacing follows a 4/8/12/16/24/32px rhythm.
 - Corners are soft but restrained: 10px controls, 16px cards, 24px hero/step shells.
 - Motion is optional and subtle; honor `prefers-reduced-motion`.

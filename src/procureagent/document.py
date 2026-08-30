@@ -15,6 +15,7 @@ from invoiceagent.extraction import (
     OcrDocument as RyanOcrDocument,
     TokenPrediction,
     is_valid_invoice_identifier,
+    public_model_ref,
 )
 from invoiceagent.core import normalize_identifier
 
@@ -198,6 +199,11 @@ class InvoiceModelRun:
         token_predictions = tuple(self.token_predictions)
         if not all(isinstance(item, TokenPrediction) for item in token_predictions):
             raise ContractValidationError("token predictions are invalid")
+        prediction_indices = tuple(item.word_index for item in token_predictions)
+        if prediction_indices != tuple(sorted(set(prediction_indices))):
+            raise ContractValidationError(
+                "token predictions must have unique increasing OCR indices"
+            )
         object.__setattr__(self, "token_predictions", token_predictions)
         if not isinstance(self.model_version, str) or not self.model_version.strip():
             raise ContractValidationError("model_version is required")
@@ -208,8 +214,10 @@ class InvoiceModelRun:
         if self.status is InvoiceModelRunStatus.NO_CANDIDATE and candidates:
             raise ContractValidationError("NO_CANDIDATE run cannot contain candidates")
         if self.status is InvoiceModelRunStatus.FAILED:
-            if candidates or not self.error_code:
-                raise ContractValidationError("failed model run needs an error and no candidates")
+            if candidates or token_predictions or not self.error_code:
+                raise ContractValidationError(
+                    "failed model run needs an error and no model evidence"
+                )
         elif self.error_code is not None or self.error_message is not None:
             raise ContractValidationError("non-failed model run cannot contain an error")
 
@@ -230,6 +238,40 @@ class InvoiceModelRun:
             model_version=self.model_version,
             status=status,
         )
+
+
+def align_model_token_predictions(
+    run: InvoiceModelRun,
+    ocr: OcrResult,
+) -> tuple[TokenPrediction | None, ...]:
+    """Bind evaluated model words to the exact OCR index, text, and box.
+
+    ``None`` means the tokenizer did not evaluate that OCR word, normally due
+    to truncation. It is not a synthetic background prediction.
+    """
+
+    if not isinstance(run, InvoiceModelRun):
+        raise ContractValidationError("token alignment requires InvoiceModelRun")
+    if not isinstance(ocr, OcrResult):
+        raise ContractValidationError("token alignment requires OcrResult")
+    aligned: list[TokenPrediction | None] = [None] * len(ocr.words)
+    for prediction in run.token_predictions:
+        index = prediction.word_index
+        if index >= len(ocr.words):
+            raise ContractValidationError("token prediction index exceeds OCR words")
+        word = ocr.words[index]
+        expected_box = (
+            word.normalized_box.x0,
+            word.normalized_box.y0,
+            word.normalized_box.x1,
+            word.normalized_box.y1,
+        )
+        if prediction.word != word.text:
+            raise ContractValidationError("token prediction text is not aligned to OCR")
+        if prediction.box != expected_box:
+            raise ContractValidationError("token prediction box is not aligned to OCR")
+        aligned[index] = prediction
+    return tuple(aligned)
 
 
 def to_ryan_ocr(ocr: OcrResult) -> RyanOcrDocument:
@@ -296,7 +338,7 @@ class RyanInvoiceAdapter:
         revision = getattr(self._extractor, "adapter_revision", None)
         device = getattr(self._extractor, "device", None)
         if adapter:
-            pinned = f"{adapter}@{revision}" if revision else adapter
+            pinned = public_model_ref(adapter, revision)
             return f"{pinned} on {device or 'unresolved'}"
         return self._extractor.__class__.__name__
 

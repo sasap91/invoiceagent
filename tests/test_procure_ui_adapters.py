@@ -6,13 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from invoiceagent.extraction import TokenPrediction
 from procureagent.contracts import (
     BoundingBox,
     DocumentReviewDecision,
     InvoiceNumberCandidate,
     InvoicePaymentStatus,
     PaymentProofSource,
-    RecordSource,
     VerifierResult,
 )
 from procureagent.document import (
@@ -127,6 +127,32 @@ class LowScoreExactModel:
             candidates=(evidence,),
             model_version="ryanznie/test-fixture on cpu",
             latency_ms=Decimal("12.3"),
+            token_predictions=(
+                TokenPrediction(
+                    word_index=2,
+                    word=word.text,
+                    box=(
+                        word.normalized_box.x0,
+                        word.normalized_box.y0,
+                        word.normalized_box.x1,
+                        word.normalized_box.y1,
+                    ),
+                    label="B-INVOICE_ID",
+                    confidence=Decimal("0.6467026472091675"),
+                    margin=Decimal("0.3744482994079590"),
+                ),
+            ),
+        )
+
+
+class NoCandidateModel:
+    def run(self, image, _ocr):
+        return InvoiceModelRun(
+            document_id=image.document_id,
+            status=InvoiceModelRunStatus.NO_CANDIDATE,
+            candidates=(),
+            model_version="ryanznie/test-fixture on cpu",
+            latency_ms=Decimal("4.2"),
         )
 
 
@@ -145,6 +171,18 @@ class ReceiptOcr:
         )
 
 
+class ReceiptIdOnlyOcr:
+    def run(self, image):
+        return make_ocr(
+            image,
+            (
+                ("RECEIPT", "Receipt", "No:", "19729058"),
+                ("Date", ":", "01/02/2018"),
+                ("Amount", "(RM)", "12.40"),
+            ),
+        )
+
+
 def analyzed_document():
     return analyze_invoice_upload(
         INVOICE_ASSET.read_bytes(),
@@ -152,6 +190,22 @@ def analyzed_document():
         ocr_engine=InvoiceOcr(),
         model_adapter=LowScoreExactModel(),
     )
+
+
+def receipt_id_only_analysis():
+    analysis = analyzed_document()
+    human = record_human_identity_decision(analysis, DocumentReviewDecision.CONFIRM)
+    prepared = prepare_procurement(human)
+    simulation = approve_and_simulate(prepared)
+    receipt = analyze_receipt_upload(
+        simulation,
+        RECEIPT_ASSET.read_bytes(),
+        filename="external-receipt.png",
+        source=PaymentProofSource.OPERATOR_UPLOAD,
+        provenance="operator_upload:test_receipt_id_only.png",
+        ocr_engine=ReceiptIdOnlyOcr(),
+    )
+    return analysis, human, prepared, simulation, receipt
 
 
 def test_low_score_exact_document_still_requires_explicit_human_review():
@@ -170,27 +224,28 @@ def test_low_score_exact_document_still_requires_explicit_human_review():
         prepare_procurement(rejected)
 
 
-def test_correcting_to_an_unlocked_invoice_number_produces_a_labeled_placeholder():
+def test_unknown_human_correction_fails_before_lookup_or_placeholder_creation():
     analysis = analyzed_document()
-    human = record_human_identity_decision(
-        analysis, DocumentReviewDecision.CORRECT, corrected_invoice_number="ZZ-99999"
-    )
-    assert human.reviewed_invoice_number == "ZZ-99999"
-    assert human.verified_identity.invoice_number == "ZZ-99999"
+    with pytest.raises(UiFlowError, match="absent from locked lookup"):
+        record_human_identity_decision(
+            analysis,
+            DocumentReviewDecision.CORRECT,
+            corrected_invoice_number="ZZ-99999",
+        )
 
-    prepared = prepare_procurement(human)
-    placeholder = prepared.looked_up_invoice
-    assert placeholder.invoice_number == "ZZ-99999"
-    assert placeholder.record_source is RecordSource.OPERATOR_TYPED_PLACEHOLDER
 
-    # The real locked batch and its verified identities are unaffected: the
-    # placeholder never enters the actual four-invoice demo obligations.
-    locked_invoice_numbers = {item.invoice_number for item in prepared.scenario.initial_state.invoices}
-    assert "ZZ-99999" not in locked_invoice_numbers
-    assert all(
-        identity.invoice_number in locked_invoice_numbers for identity in prepared.verified_identities
+def test_rule_only_result_cannot_be_confirmed_as_model_evidence():
+    analysis = analyze_invoice_upload(
+        INVOICE_ASSET.read_bytes(),
+        filename=INVOICE_ASSET.name,
+        ocr_engine=InvoiceOcr(),
+        model_adapter=NoCandidateModel(),
     )
-    assert prepared.verification.result is VerifierResult.REQUIRES_OPERATOR
+    assert analysis.rule_candidates[0].invoice_number == "FF-10482"
+    assert analysis.selected_model_candidate is None
+    assert "MODEL_CANDIDATE_MISSING" in analysis.gate.reason_codes
+    with pytest.raises(UiFlowError, match="displayed model candidate"):
+        record_human_identity_decision(analysis, DocumentReviewDecision.CONFIRM)
 
 
 def test_full_controlled_flow_needs_human_then_operator_then_verified_proof():
@@ -243,6 +298,24 @@ def test_receipt_cannot_run_before_operator_approved_simulation():
             provenance="test",
             ocr_engine=ReceiptOcr(),
         )
+
+
+def test_receipt_id_only_is_captured_but_cannot_close_accounts_payable():
+    _analysis, _human, _prepared, simulation, receipt = receipt_id_only_analysis()
+
+    assert receipt.parsed.receipt_id == "19729058"
+    assert receipt.parsed.status.value == "REVIEW_REQUIRED"
+    assert "UNUSED_RECEIPT_ID" in receipt.proof_gate.checks_passed
+    assert "MISSING_SUPPLIER" in receipt.proof_gate.reason_codes
+    assert "MISSING_INVOICE_NUMBER" in receipt.proof_gate.reason_codes
+    assert "MISSING_AMOUNT_MINOR" in receipt.proof_gate.reason_codes
+    assert not receipt.proof_gate.closes_obligation
+    assert simulation.environment.state.cash_minor == 100_000
+    assert simulation.environment.state.invoices[0].payment_status is (
+        InvoicePaymentStatus.SIMULATED_PAYMENT_APPROVED
+    )
+    with pytest.raises(UiFlowError, match="verified full payment proof"):
+        confirm_verified_payment(receipt)
 
 
 def test_failed_ocr_does_not_initialize_the_lazy_model():

@@ -1,10 +1,13 @@
 {
   "asset": "fresh_farms_payment_receipt.png",
-  "sha256": "073489e1db12d8740e6486703adae907263a5dafd9614b98b5aab08ff170aaed",
+  "sha256": "875ea2376703b44ed2976573766dad48fc476075547ad68c207508115a25441c",
   "source": "deterministic_svg_fixture",
   "generated_on": "2026-08-30",
   "purpose": "synthetic full-payment receipt for OCR and AP proof-gate QA",
   "contains_real_payment_data": false,
+  "demonstration_customer": "Sugar & Spice Thai Restaurant",
+  "real_restaurant_affiliation": false,
+  "restaurant_disclosure": "SYNTHETIC DEMO · NO AFFILIATION. The named restaurant did not provide this receipt or any financial data.",
   "fal_generation": {
     "requested": true,
     "model": "fal-ai/flux-2",
@@ -18,6 +21,7 @@
       "RCPT-FF-10482",
       "Fresh Farms",
       "fresh_farms",
+      "Sugar & Spice Thai Restaurant",
       "FF-10482",
       "2026-08-30",
       "USD",

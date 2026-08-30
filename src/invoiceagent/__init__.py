@@ -37,6 +37,7 @@ from .extraction import (
     extract_anchored_identifier,
     is_valid_invoice_identifier,
     normalize_pixel_boxes,
+    public_model_ref,
 )
 
 __all__ = [
@@ -74,4 +75,5 @@ __all__ = [
     "extract_anchored_identifier",
     "is_valid_invoice_identifier",
     "normalize_pixel_boxes",
+    "public_model_ref",
 ]

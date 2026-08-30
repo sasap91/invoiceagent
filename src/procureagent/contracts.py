@@ -24,7 +24,6 @@ class ContractValidationError(ValueError):
 
 class RecordSource(str, Enum):
     SYNTHETIC_FIXTURE_LOOKUP = "synthetic_fixture_lookup"
-    OPERATOR_TYPED_PLACEHOLDER = "operator_typed_placeholder"
 
 
 class SupplierSource(str, Enum):
@@ -972,7 +971,7 @@ LOCKED_SCENARIO_PATH = (
     Path(__file__).resolve().parents[2] / "data" / "procureagent" / "scenario_v1.json"
 )
 LOCKED_SCENARIO_SHA256 = (
-    "22ca9fe2abaca77d6049c1b60f26af54c77baed6fdc4fe71bb6f61fd93f0a101"
+    "e13db4d2767967826147cf8b538e8688edd46072369f4a30e8823e14579c4792"
 )
 
 
@@ -1235,6 +1234,8 @@ def load_locked_scenario(path: str | Path | None = None) -> ProcureScenario:
         scenario.scenario_id == "restaurant_demo_v1",
         scenario.seed == 138,
         scenario.horizon_days == 7,
+        scenario.initial_state.restaurant_id
+        == "sugar_and_spice_thai_restaurant",
         scenario.initial_state.day == 0,
         scenario.initial_state.state_version == 1,
         scenario.initial_state.currency == "USD",
