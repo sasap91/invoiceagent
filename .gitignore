@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+.venv-model/
+venv/
+.env
+.DS_Store
+.streamlit/secrets.toml
+dist/
+build/
+coverage.xml
+htmlcov/
+
+# Local model/data artifacts are downloaded at runtime and must not be committed.
+artifacts/
+data/private/
+*.onnx
+*.safetensors

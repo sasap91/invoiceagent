@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "invoiceagent"
+version = "0.1.0"
+description = "A small-first invoice and payment reconciliation assistant for small-business cash flow."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "InvoiceAgent hackathon team" },
+]
+dependencies = []
+
+[project.optional-dependencies]
+demo = [
+  "streamlit>=1.39,<2",
+]
+test = [
+  "pytest>=8,<9",
+]
+model = [
+  "huggingface-hub>=0.27,<2",
+  "pillow>=10,<13",
+  "torch>=2.2,<3",
+  "transformers>=4.48,<5",
+  "peft>=0.14,<1",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = [".", "src"]
+testpaths = ["tests"]
