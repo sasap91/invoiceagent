@@ -118,6 +118,32 @@ class ProcureGym:
     def consumed_receipt_ids(self) -> frozenset[str]:
         return frozenset(self._consumed_receipt_ids)
 
+    @property
+    def terminated(self) -> bool:
+        """True once a high-criticality supplier has been starved out."""
+
+        return self._terminated
+
+    @property
+    def truncated(self) -> bool:
+        """True once the scenario horizon ended the episode without a failure."""
+
+        return self._truncated
+
+    @property
+    def episode_complete(self) -> bool:
+        """Whether ``step`` would now refuse; check this before proposing a day."""
+
+        return self._terminated or self._truncated
+
+    @property
+    def scenario(self) -> ProcureScenario:
+        return self._scenario
+
+    @property
+    def horizon_days(self) -> int:
+        return self._scenario.horizon_days
+
     def reset(self, *, seed: int | None = None) -> tuple[RestaurantState, dict[str, Any]]:
         """Restore the exact fixture state and clear all episode-local state."""
 
@@ -175,6 +201,10 @@ class ProcureGym:
         cash_after = cash_before - pay_total
         if cash_after < 0:  # Defensive duplicate of the verifier hard constraint.
             raise GymTransitionError("approved batch would make cash negative")
+        # Simulated revenue lands after the batch commits, so it can never fund
+        # a payment the verifier approved against this morning's cash.
+        cash_inflow_minor = self._scenario.daily_cash_inflow_minor
+        cash_after += cash_inflow_minor
 
         day_before = self._state.day
         day_after = day_before + 1
@@ -275,6 +305,7 @@ class ProcureGym:
             details=(
                 f"day:{day_before}->{day_after}",
                 f"cash_minor:{cash_before}->{cash_after}",
+                f"cash_inflow_minor:{cash_inflow_minor}",
                 f"late_fees_minor:{late_fees_minor}",
             ),
         )
@@ -312,6 +343,7 @@ class ProcureGym:
             "review_invoice_numbers": review,
             "cash_before_minor": cash_before,
             "cash_after_minor": cash_after,
+            "cash_inflow_minor": cash_inflow_minor,
             "raw_metrics": metrics,
             "reward": reward,
             "audit_event": audit,
