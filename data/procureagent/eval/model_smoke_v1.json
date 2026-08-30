@@ -1,0 +1,52 @@
+{
+  "schema_version": "procureagent-model-smoke-v1",
+  "run_id": "fresh-farms-layoutlmv3-smoke-2026-08-30",
+  "run_date": "2026-08-30",
+  "claim_scope": "one synthetic invoice smoke test; not aggregate model accuracy",
+  "live_inference": true,
+  "input": {
+    "path": "data/procureagent/assets/fresh_farms_invoice.png",
+    "sha256": "d25682a2b982a6552fac707c5c09d3ac2a588e27c82c820c55cb65f914bfe155",
+    "expected_invoice_number": "FF-10482",
+    "synthetic_fixture": true
+  },
+  "ocr": {
+    "engine": "tesseract 5.5.3",
+    "page_segmentation_mode": 6,
+    "word_count": 65,
+    "anchored_rule_candidate": "FF-10482",
+    "mean_word_confidence": "0.9337552758461538461538461538"
+  },
+  "model": {
+    "adapter": "ryanznie/layoutlmv3-lora-invoice-number",
+    "adapter_revision": "7dc28f5a3b14aa100ba432ee1b0a6cac6c7b2c5c",
+    "base": "microsoft/layoutlmv3-base",
+    "base_revision": "cfbbbff0762e6aab37086fdd4739ad14fe7d5db4",
+    "task": "invoice-number BIO token classification",
+    "device": "mps",
+    "torch": "2.13.0",
+    "transformers": "4.57.6",
+    "peft": "0.20.0"
+  },
+  "result": {
+    "candidate": "FF-10482",
+    "strict_exact": true,
+    "candidate_span_count": 1,
+    "selected_ocr_tokens": ["FF-10482"],
+    "entity_min_confidence": "0.6363860964775085",
+    "entity_mean_margin": "0.3509486615657806",
+    "latency_ms": "197.6",
+    "document_gate": "REVIEW_REQUIRED",
+    "document_gate_reasons": ["LOW_MODEL_CONFIDENCE"]
+  },
+  "hardware": {
+    "host": "Apple M4 Max",
+    "platform": "macOS-26.6.2-arm64-arm-64bit"
+  },
+  "notes": [
+    "The model received the image plus externally generated OCR words and boxes.",
+    "Confidence is a model score, not a calibrated probability that the answer is correct.",
+    "The rule and model agree, but the frozen 0.80 gate correctly requires operator review because this run's entity score is lower.",
+    "The exact-match value applies only to this one fixture."
+  ]
+}

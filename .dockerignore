@@ -1,0 +1,12 @@
+.git
+.venv
+.venv-model
+__pycache__
+*.pyc
+.pytest_cache
+.streamlit/secrets.toml
+.env
+artifacts
+data/private
+*.onnx
+*.safetensors

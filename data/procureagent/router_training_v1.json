@@ -1,0 +1,302 @@
+{
+  "schema_version": "procure-router-training-v1",
+  "dataset_id": "procureagent-hand-authored-router-fixtures-v1",
+  "purpose": "Offline development of C6 invoice-identity routing only; not supplier ranking or payment action learning.",
+  "provenance": {
+    "synthetic_only": true,
+    "contains_real_documents": false,
+    "contains_ryan_locked_test_data": false,
+    "authoring_method": "Hand-authored counterfactual route outcomes for deterministic Router Lab tests",
+    "separation_rule": "Never join these rows with Ryan's locked SROIE test examples for fitting or threshold selection"
+  },
+  "reward_config": {
+    "version": "identity-router-reward-v1",
+    "correct_automatic_identity": "10",
+    "incorrect_automatic_identity": "-50",
+    "local_model_invocation": "-0.2",
+    "human_review": "-2",
+    "latency_cost_per_100_ms": "-0.01"
+  },
+  "rows": [
+    {
+      "row_id": "synthetic-train-familiar-high",
+      "split": "train",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "high",
+        "rule_candidate_present": true,
+        "model_candidate_count": 1,
+        "rule_model_agreement": true,
+        "known_supplier": true,
+        "grounded_evidence": true,
+        "layout_novelty": "known"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": true, "latency_ms": 3},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": true, "latency_ms": 115},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3000}
+      }
+    },
+    {
+      "row_id": "synthetic-train-novel-agreement",
+      "split": "train",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "medium",
+        "rule_candidate_present": true,
+        "model_candidate_count": 1,
+        "rule_model_agreement": true,
+        "known_supplier": true,
+        "grounded_evidence": true,
+        "layout_novelty": "novel"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": false, "latency_ms": 4},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": true, "latency_ms": 130},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3200}
+      }
+    },
+    {
+      "row_id": "synthetic-train-novel-strong-rule",
+      "split": "train",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "medium",
+        "rule_candidate_present": true,
+        "model_candidate_count": 0,
+        "rule_model_agreement": false,
+        "known_supplier": true,
+        "grounded_evidence": true,
+        "layout_novelty": "novel"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": true, "latency_ms": 5},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": false, "latency_ms": 140},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3100}
+      }
+    },
+    {
+      "row_id": "synthetic-train-model-only-low-ocr",
+      "split": "train",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "low",
+        "rule_candidate_present": false,
+        "model_candidate_count": 1,
+        "rule_model_agreement": false,
+        "known_supplier": true,
+        "grounded_evidence": true,
+        "layout_novelty": "novel"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": false, "latency_ms": 3},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": true, "latency_ms": 155},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3400}
+      }
+    },
+    {
+      "row_id": "synthetic-train-unknown-supplier",
+      "split": "train",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "high",
+        "rule_candidate_present": true,
+        "model_candidate_count": 1,
+        "rule_model_agreement": true,
+        "known_supplier": false,
+        "grounded_evidence": true,
+        "layout_novelty": "known"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": true, "latency_ms": 3},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": true, "latency_ms": 110},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 2900}
+      }
+    },
+    {
+      "row_id": "synthetic-train-ambiguous-model",
+      "split": "train",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "medium",
+        "rule_candidate_present": true,
+        "model_candidate_count": 2,
+        "rule_model_agreement": false,
+        "known_supplier": true,
+        "grounded_evidence": true,
+        "layout_novelty": "known"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": true, "latency_ms": 4},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": false, "latency_ms": 125},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3300}
+      }
+    },
+    {
+      "row_id": "synthetic-train-ungrounded",
+      "split": "train",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "high",
+        "rule_candidate_present": true,
+        "model_candidate_count": 1,
+        "rule_model_agreement": true,
+        "known_supplier": true,
+        "grounded_evidence": false,
+        "layout_novelty": "known"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": true, "latency_ms": 3},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": true, "latency_ms": 118},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3000}
+      }
+    },
+    {
+      "row_id": "synthetic-development-familiar-high",
+      "split": "development",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "high",
+        "rule_candidate_present": true,
+        "model_candidate_count": 1,
+        "rule_model_agreement": true,
+        "known_supplier": true,
+        "grounded_evidence": true,
+        "layout_novelty": "known"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": true, "latency_ms": 4},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": true, "latency_ms": 120},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3050}
+      }
+    },
+    {
+      "row_id": "synthetic-development-novel-agreement",
+      "split": "development",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "medium",
+        "rule_candidate_present": true,
+        "model_candidate_count": 1,
+        "rule_model_agreement": true,
+        "known_supplier": true,
+        "grounded_evidence": true,
+        "layout_novelty": "novel"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": false, "latency_ms": 5},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": true, "latency_ms": 135},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3250}
+      }
+    },
+    {
+      "row_id": "synthetic-development-novel-strong-rule",
+      "split": "development",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "medium",
+        "rule_candidate_present": true,
+        "model_candidate_count": 0,
+        "rule_model_agreement": false,
+        "known_supplier": true,
+        "grounded_evidence": true,
+        "layout_novelty": "novel"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": true, "latency_ms": 6},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": false, "latency_ms": 145},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3150}
+      }
+    },
+    {
+      "row_id": "synthetic-development-model-only-low-ocr",
+      "split": "development",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "low",
+        "rule_candidate_present": false,
+        "model_candidate_count": 1,
+        "rule_model_agreement": false,
+        "known_supplier": true,
+        "grounded_evidence": true,
+        "layout_novelty": "novel"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": false, "latency_ms": 4},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": true, "latency_ms": 160},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3450}
+      }
+    },
+    {
+      "row_id": "synthetic-development-unknown-supplier",
+      "split": "development",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "high",
+        "rule_candidate_present": true,
+        "model_candidate_count": 1,
+        "rule_model_agreement": true,
+        "known_supplier": false,
+        "grounded_evidence": true,
+        "layout_novelty": "known"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": true, "latency_ms": 4},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": true, "latency_ms": 115},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 2950}
+      }
+    },
+    {
+      "row_id": "synthetic-development-ambiguous-model",
+      "split": "development",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "medium",
+        "rule_candidate_present": true,
+        "model_candidate_count": 2,
+        "rule_model_agreement": false,
+        "known_supplier": true,
+        "grounded_evidence": true,
+        "layout_novelty": "known"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": true, "latency_ms": 5},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": false, "latency_ms": 130},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3350}
+      }
+    },
+    {
+      "row_id": "synthetic-development-ungrounded",
+      "split": "development",
+      "synthetic": true,
+      "origin": "hand_authored_synthetic_router_fixture",
+      "context": {
+        "ocr_quality_bin": "high",
+        "rule_candidate_present": true,
+        "model_candidate_count": 1,
+        "rule_model_agreement": true,
+        "known_supplier": true,
+        "grounded_evidence": false,
+        "layout_novelty": "known"
+      },
+      "outcomes": {
+        "RULES_ONLY": {"identity_correct": true, "latency_ms": 4},
+        "RULES_PLUS_LOCAL_MODEL": {"identity_correct": true, "latency_ms": 123},
+        "HUMAN_REVIEW": {"identity_correct": null, "latency_ms": 3050}
+      }
+    }
+  ]
+}

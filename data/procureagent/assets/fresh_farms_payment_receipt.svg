@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200">
+  <rect width="900" height="1200" fill="#ece9e1"/>
+  <rect x="110" y="38" width="680" height="1124" rx="8" fill="#ffffff" stroke="#d2cec4" stroke-width="2"/>
+  <text x="450" y="116" text-anchor="middle" font-family="Courier New, monospace" font-size="34" font-weight="700" fill="#111111">PAYMENT RECEIPT</text>
+  <text x="450" y="164" text-anchor="middle" font-family="Courier New, monospace" font-size="22" fill="#111111">FRESH FARMS</text>
+  <text x="450" y="198" text-anchor="middle" font-family="Courier New, monospace" font-size="18" fill="#333333">42 MARKET GARDEN ROAD</text>
+  <line x1="154" y1="236" x2="746" y2="236" stroke="#222222" stroke-width="2" stroke-dasharray="10 7"/>
+  <text x="154" y="290" font-family="Courier New, monospace" font-size="22" fill="#111111">Receipt ID: RCPT-FF-10482</text>
+  <text x="154" y="344" font-family="Courier New, monospace" font-size="22" fill="#111111">Supplier: Fresh Farms</text>
+  <text x="154" y="398" font-family="Courier New, monospace" font-size="22" fill="#111111">Supplier ID: fresh_farms</text>
+  <text x="154" y="452" font-family="Courier New, monospace" font-size="22" fill="#111111">Invoice Number: FF-10482</text>
+  <text x="154" y="506" font-family="Courier New, monospace" font-size="22" fill="#111111">Paid Date: 2026-08-30</text>
+  <text x="154" y="560" font-family="Courier New, monospace" font-size="22" fill="#111111">Currency: USD</text>
+  <line x1="154" y1="612" x2="746" y2="612" stroke="#222222" stroke-width="2" stroke-dasharray="10 7"/>
+  <text x="154" y="674" font-family="Courier New, monospace" font-size="24" font-weight="700" fill="#111111">AMOUNT PAID</text>
+  <text x="746" y="674" text-anchor="end" font-family="Courier New, monospace" font-size="30" font-weight="700" fill="#111111">$1,500.00</text>
+  <rect x="154" y="728" width="592" height="86" fill="#e9f5ef" stroke="#13795b" stroke-width="2"/>
+  <text x="450" y="782" text-anchor="middle" font-family="Courier New, monospace" font-size="25" font-weight="700" fill="#0a684c">PAID IN FULL</text>
+  <line x1="154" y1="860" x2="746" y2="860" stroke="#222222" stroke-width="2" stroke-dasharray="10 7"/>
+  <text x="450" y="925" text-anchor="middle" font-family="Courier New, monospace" font-size="19" fill="#111111">SIMULATED HACKATHON FIXTURE</text>
+  <text x="450" y="961" text-anchor="middle" font-family="Courier New, monospace" font-size="19" font-weight="700" fill="#a13d36">NO REAL PAYMENT</text>
+  <text x="450" y="1038" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#555555">Generated deterministically for OCR QA</text>
+  <text x="450" y="1080" text-anchor="middle" font-family="Courier New, monospace" font-size="17" fill="#555555">Fal replacement pending available balance</text>
+</svg>

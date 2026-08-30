@@ -1,100 +1,164 @@
-# InvoiceAgent
+# ProcureAgent
 
-**A small-first cash-flow assistant for small businesses.**
+**A small-model Accounts Payable copilot for a cash-constrained restaurant.**
 
-InvoiceAgent reads an invoice, reads the receipt or payment record that follows it, and answers the question a business owner actually cares about:
+ProcureAgent answers a practical question: when a restaurant has **$5,000** in cash and **$6,200** of supplier bills, which invoices should it pay now, defer, or verify so the kitchen keeps running?
 
-> What do I owe, what am I waiting to collect, and what has already been paid?
+It is a controlled hackathon demo. It does not connect to a bank, authorize money, or claim that one model does everything.
 
-## The idea in plain English
+## The story in 30 seconds
 
-An **invoice** is a request for money. A **receipt** is evidence that money moved.
+1. Upload a supplier invoice.
+2. Tesseract performs real local OCR.
+3. Ryan's local LayoutLMv3 specialist highlights the token it believes is the invoice number.
+4. Exact evidence checks fail closed when identity is uncertain.
+5. A visibly synthetic lookup adds the amount, due date, inventory, and supplier context.
+6. A deterministic policy proposes **PAY**, **DEFER**, or **VERIFY**; a verifier and a person govern the simulated action.
+7. ProcureGym shows the restaurant consequence and compares the proposal with Earliest Due First.
+8. Upload a full-payment receipt. OCR plus deterministic rules—not Ryan's model—must match supplier, invoice, full amount, and currency before the demo ledger says `PAID_CONFIRMED`.
 
-| Bookkeeping side | ELI5 meaning | Example |
-|---|---|---|
-| Accounts payable (AP) | Money the business must pay out | A bakery receives a flour supplier's invoice, then stores the payment receipt |
-| Accounts receivable (AR) | Money customers must pay the business | The bakery invoices a catering customer, then stores proof when the customer pays |
-
-InvoiceAgent extracts the identifying fields, matches payments to invoices, and marks each bill as unpaid, partially paid, paid, overdue, or needing review.
-
-## Why a small model?
-
-Most documents should not need an expensive frontier model. The routine path stays local and inexpensive; uncertain cases are escalated instead of guessed.
+An invoice from a supplier is **Accounts Payable**: money the restaurant owes. The matching receipt is proof for this simulated payment lifecycle. Accounts Receivable and partial payments are outside the MVP.
 
 ```mermaid
 flowchart LR
-    A[Invoice or receipt] --> B[OCR words + positions]
-    B --> C[Simple rules]
-    C --> D[~133M document specialist]
-    D --> E{Quality gate}
-    E -->|Safe| F[Update cash-flow ledger]
-    E -->|Uncertain| G[Human or larger model]
+    A[Invoice image] --> B[Tesseract OCR]
+    B --> C[LayoutLMv3 invoice-token specialist]
+    C --> D{Evidence gate}
+    D -->|verified| E[Synthetic supplier lookup]
+    D -->|uncertain| R[Human review]
+    E --> F[PAY / DEFER / VERIFY policy]
+    F --> G[Rules + operator]
+    G --> H[ProcureGym simulation]
+    H --> I[Receipt upload]
+    I --> J[OCR + deterministic proof gate]
+    J -->|exact full match| K[PAID_CONFIRMED]
+    J -->|mismatch| R
 ```
 
-Ryan's current [LayoutLMv3 LoRA adapter](https://huggingface.co/ryanznie/layoutlmv3-lora-invoice-number) specializes in **invoice-number extraction**. It does not yet extract every field and it does not perform OCR. InvoiceAgent therefore keeps extraction sources visible and fails closed when the evidence is incomplete.
+![ProcureAgent dashboard](docs/assets/procureagent-dashboard.png)
 
-## Run the hackathon demo
+## What is AI here—and what is not
+
+| Step | Implementation | Honest boundary |
+|---|---|---|
+| Invoice OCR | Tesseract 5 | OCR is separate from the model |
+| Invoice number | [`ryanznie/layoutlmv3-lora-invoice-number`](https://huggingface.co/ryanznie/layoutlmv3-lora-invoice-number) | Supervised token classifier; it does not extract amount or choose payments |
+| Business fields | Immutable synthetic lookup | Looked up, never attributed to the model |
+| Recommendation | Criticality-Aware Greedy v1 | Deterministic P0 policy, not a trained RL policy |
+| Safety | Batch verifier + explicit operator decision | No unapproved state mutation |
+| Consequence | Seeded ProcureGym | Simulation only |
+| Receipt proof | Tesseract + anchored deterministic rules | No receipt-model claim; exact full match only |
+| Router Lab | Constrained contextual-bandit experiment | P1 lab; no improvement claim without held-out evidence |
+
+### Captured real-model proof
+
+On the committed synthetic Fresh Farms invoice, an actual local run selected one OCR token, `FF-10482`, and matched the expected value exactly. The recorded inference took **197.6 ms on Apple MPS**. Its entity score was below the frozen 0.80 auto-confirm threshold, so the document gate correctly requested operator review even though the rule and model agreed. This is a one-document smoke test, not an aggregate accuracy claim; see [`model_smoke_v1.json`](data/procureagent/eval/model_smoke_v1.json).
+
+The reproducible adapter revision is `7dc28f5a3b14aa100ba432ee1b0a6cac6c7b2c5c`; the base-model revision is `cfbbbff0762e6aab37086fdd4739ad14fe7d5db4`.
+
+### Router Lab checkpoint
+
+C6 fits a small tabular contextual bandit for invoice-identity routing only. On seven synthetic development rows it produced **4 correct automatic identities / 0 wrong automatic accepts / 3 reviews**, average reward `4.6621`; the fixed gate produced **3 / 0 / 4**, average `2.9029`; always-review produced **0 / 0 / 7**, average `-2.3179`. All seven development context bins also appear in training, and no frozen test was evaluated. This is a within-bin development result—not evidence of generalization, live-upload accuracy, supplier-ranking quality, or payment-action quality.
+
+## Run the recording demo
+
+Requirements: Python 3.12 and Tesseract 5.
 
 ```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run app.py
+python3.12 -m venv .venv-model
+.venv-model/bin/pip install -e ".[demo,test,model]"
+./scripts/run_demo.sh
 ```
 
-To enable the **Live local model** tab as well:
+Open <http://127.0.0.1:8501> and use the **/eval lab**. The first model load downloads the base model and adapter, so warm it once before presenting.
+
+To expose the running Mac through an ephemeral Cloudflare URL:
 
 ```bash
-pip install -e ".[demo,test,model]"
-streamlit run app.py
+./scripts/run_demo.sh --public
 ```
 
-The live model tab accepts an invoice image plus an OCR JSON sidecar containing
-`words`, normalized `boxes`, and an OCR `quality` score. Model weights download
-on the first run. The UI shows entity-token confidence, evidence boxes, latency,
-and the gate decision; it never presents background-token confidence as proof.
+Keep that terminal open. The printed `trycloudflare.com` URL is a temporary, public, unauthenticated presentation endpoint with no uptime guarantee. Use synthetic fixtures only; do not upload confidential invoices.
 
-Run one real checkpoint smoke test against Ryan's held-out dataset:
+Useful recording fixtures:
+
+- [`fresh_farms_invoice.png`](data/procureagent/assets/fresh_farms_invoice.png)
+- [`fresh_farms_payment_receipt.png`](data/procureagent/assets/fresh_farms_payment_receipt.png)
+- [`receipt_provenance.json`](data/procureagent/assets/receipt_provenance.json)
+- [`procureagent-dashboard.png`](docs/assets/procureagent-dashboard.png)
+- [`sundai-thumbnail.png`](docs/assets/sundai-thumbnail.png) — 1200×630 card image
+
+## Verify it
+
+Fast suite:
 
 ```bash
-python scripts/evaluate_layoutlm.py --sample X51005200931
+.venv-model/bin/pytest
 ```
 
-Or run a small transparent slice, with every missing answer kept in the denominator:
+Acceptance artifacts:
 
 ```bash
-python scripts/evaluate_layoutlm.py --limit 12
+.venv-model/bin/python scripts/eval_procureagent.py \
+  --output data/procureagent/eval/acceptance_v1.json
+HF_HUB_DISABLE_PROGRESS_BARS=1 \
+  .venv-model/bin/python scripts/eval_procureagent.py --with-model \
+  --output data/procureagent/eval/acceptance_live_v1.json
 ```
 
-Run the tests:
+Freeze evidence: **192 passed, 1 intentionally opt-in skip**; offline acceptance **9/9**; real-model acceptance **10/10**. The safety harness blocks **6/6** action/governance attacks and **8/8** receipt ambiguity, mismatch, duplicate, and forgery attacks.
+
+One real checkpoint smoke:
 
 ```bash
-pytest
+HF_HUB_DISABLE_PROGRESS_BARS=1 \
+  .venv-model/bin/python scripts/evaluate_layoutlm.py --sample X51005200931
 ```
 
-The built-in examples are labeled **fixture replays**. They let the team demonstrate reconciliation and routing without pretending that OCR or model inference ran live. Connecting live OCR and Ryan's adapter are separately tracked acceptance criteria in the [product requirements](docs/PRD.md).
+The project keeps missing predictions in the denominator, separates fixture replay from live execution, and does not turn model confidence into a claimed probability of correctness.
 
-## Demo story
+## Deployment from Sasa's GitHub repo
 
-1. An easy supplier invoice is accepted locally.
-2. A less familiar invoice is handled by the small document specialist.
-3. An ambiguous document is rejected by the quality gate and sent to review.
-4. A payment receipt is matched to its invoice.
-5. The dashboard immediately updates money due, money collected, and overdue bills.
+The repository is prepared for Streamlit Community Cloud:
 
-## Safety rule
+- Repository: `sasap91/invoiceagent`
+- Branch: `main`
+- Entrypoint: `procure_app.py`
+- Python: `3.12`
+- `packages.txt` installs Tesseract
+- `requirements.txt` installs the app and model runtime
 
-InvoiceAgent may recommend a match, but it does **not** send money, change accounting records, or silently accept an uncertain identifier. A wrong invoice number can apply a payment to the wrong bill, so ambiguous cases fail closed.
+Streamlit requires a repository administrator to create the app. Sasa must perform the initial **Create app** click; subsequent pushes redeploy automatically. The included `Dockerfile` is the portable fallback for any container host.
 
-## Team
+## Optional Fal receipt generation
 
-- **Sasa:** product/demo integration and repository coordination
-- **Ryan:** LayoutLMv3 specialist, extraction evaluation, and model serving
-- **David:** OCR/document ingestion and fixture preparation
-- **Wilson:** confidence gate, reconciliation, metrics, and presentation narrative
+The current receipt is deterministic so its text is reliably OCR-readable. A Fal generation was attempted, but the configured Fal account reported an exhausted balance. After replenishing it:
 
-The detailed owner-by-owner checklist is in [docs/PRD.md](docs/PRD.md).
+```bash
+.venv-model/bin/pip install -e ".[assets]"
+.venv-model/bin/python scripts/generate_fal_receipt.py
+```
 
-## Licensing
+The script keeps `FAL_KEY` server-side and refuses to mark the generated image demo-ready unless Tesseract recovers every required proof field.
 
-Repository code is MIT licensed. Model weights and datasets retain their own terms. In particular, the Microsoft LayoutLMv3 base model is published under CC BY-NC-SA 4.0, so this repository's MIT license does not relicense derived model weights.
+## Team and build ownership
+
+| Category | Named owners |
+|---|---|
+| C0 — Contracts and fixtures | Wilson / `@skylarwooster` |
+| C1 — OCR and ingestion | David / `@cheezburgerz`, Ryan Nie, Dillon |
+| C2 — Specialist and document gate | Ryan Nie, Dillon |
+| C3 — Lookup and restaurant state | Wilson / `@skylarwooster` |
+| C4 — Recommendation and governance | Ryan Nie, Dillon |
+| C5 — ProcureGym and baselines | Sasa P, Wilson / `@skylarwooster` |
+| C6 — Contextual-bandit Router Lab | David / `@cheezburgerz`, Ryan Nie, Dillon |
+| C7 — UI and deployment | Wilson / `@skylarwooster`, Sasa P, Ryan Nie, Dillon, David / `@cheezburgerz` |
+| C8 — Evaluation and presentation proof | Sasa P |
+
+Wilson is building the integrated reference path across categories for the deadline; named owners retain review and sign-off, and compatible teammate work can merge against the frozen contracts.
+
+See the complete [PRD](docs/PRD.md) for contracts, reward design, safety gates, acceptance criteria, and task claims.
+
+## License and model notice
+
+Repository code is MIT licensed. Datasets, base-model weights, and adapter weights retain their own terms; this repository's MIT license does not relicense them. The adapter card declares MIT “inherited from base,” while the Microsoft LayoutLMv3 base model declares CC BY-NC-SA 4.0 and Ryan's dataset card lists its license as unknown. Ryan must clarify weight and dataset usage before any broader licensing or deployment claim.

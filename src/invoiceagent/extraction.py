@@ -27,6 +27,8 @@ from .core import (
 
 DEFAULT_ADAPTER_MODEL = "ryanznie/layoutlmv3-lora-invoice-number"
 DEFAULT_BASE_MODEL = "microsoft/layoutlmv3-base"
+DEFAULT_ADAPTER_REVISION = "7dc28f5a3b14aa100ba432ee1b0a6cac6c7b2c5c"
+DEFAULT_BASE_REVISION = "cfbbbff0762e6aab37086fdd4739ad14fe7d5db4"
 
 _DATE_LIKE = re.compile(r"^(?:\d{1,4}[-/.]){2}\d{1,4}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/#:-]{2,127}$")
@@ -380,11 +382,15 @@ class LayoutLMv3InvoiceExtractor:
         *,
         adapter_model: str = DEFAULT_ADAPTER_MODEL,
         base_model: str = DEFAULT_BASE_MODEL,
+        adapter_revision: str = DEFAULT_ADAPTER_REVISION,
+        base_revision: str = DEFAULT_BASE_REVISION,
         device: str | None = None,
         max_length: int = 512,
     ) -> None:
         self.adapter_model = adapter_model
         self.base_model = base_model
+        self.adapter_revision = adapter_revision
+        self.base_revision = base_revision
         self.requested_device = device
         self.device = "cpu"
         self.max_length = max_length
@@ -414,12 +420,20 @@ class LayoutLMv3InvoiceExtractor:
             self.device = "cpu"
 
         self.processor = LayoutLMv3Processor.from_pretrained(
-            self.adapter_model, apply_ocr=False
+            self.adapter_model,
+            revision=self.adapter_revision,
+            apply_ocr=False,
         )
         base = LayoutLMv3ForTokenClassification.from_pretrained(
-            self.base_model, num_labels=3
+            self.base_model,
+            revision=self.base_revision,
+            num_labels=3,
         )
-        self.model = PeftModel.from_pretrained(base, self.adapter_model)
+        self.model = PeftModel.from_pretrained(
+            base,
+            self.adapter_model,
+            revision=self.adapter_revision,
+        )
         self.model.to(self.device)
         self.model.eval()
         self._torch = torch
@@ -473,6 +487,9 @@ class LayoutLMv3InvoiceExtractor:
         latency = Decimal(str((perf_counter() - started) * 1000)).quantize(Decimal("0.1"))
         return InvoiceNumberResult(
             spans=spans,
-            model_name=f"{self.adapter_model} on {self.device}",
+            model_name=(
+                f"{self.adapter_model}@{self.adapter_revision} "
+                f"(base {self.base_model}@{self.base_revision}) on {self.device}"
+            ),
             latency_ms=latency,
         )

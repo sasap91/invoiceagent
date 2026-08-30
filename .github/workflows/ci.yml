@@ -13,7 +13,14 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[demo,test]"
       - run: pytest
-      - run: python -m compileall -q src app.py
+      - run: python scripts/eval_procureagent.py --output acceptance-ci.json
+      - run: python -m compileall -q src app.py procure_app.py scripts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: procureagent-acceptance
+          path: acceptance-ci.json

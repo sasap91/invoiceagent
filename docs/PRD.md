@@ -2,7 +2,7 @@
 
 **One-line promise:** Help a restaurant decide which supplier invoices to pay now, defer, or verify when cash is limited.
 
-**Status:** Active build contract; Wilson is integrating the end-to-end reference implementation
+**Status:** Integrated reference path implemented and tested; named-owner sign-off and permanent deployment remain open
 
 **Scope decision:** Sasa's restaurant procurement use case is the source of truth
 
@@ -11,7 +11,7 @@
 **Environment:** ProcureGym
 **Primary workflow:** Supplier invoice → verified context → payment recommendation → operator decision → simulated consequence → full-payment receipt proof → AP transaction complete
 
-> **Current implementation note:** The repository still contains an earlier InvoiceAgent AP/AR reconciliation prototype. That code is not proof that ProcureAgent is implemented. The task board below defines the pivot.
+> **Current checkpoint:** The integrated ProcureAgent reference path is implemented. Remaining release work is named-owner sign-off, permanent deployment, and presentation freeze; the earlier InvoiceAgent prototype is not part of the demo path.
 
 ---
 
@@ -218,7 +218,7 @@ ProcureAgent contains different learning and policy components. They must not be
 The team agreed that learning and reward design must answer three separate questions:
 
 1. **Did we identify the invoice number correctly?** Compare the proposed invoice number with declared ground truth using strict exact match, and heavily penalize any incorrect identity that is automatically accepted. Ryan's token reader remains supervised; the RL component here is the extraction router deciding whether to trust cheap rules, invoke the local specialist, or request review.
-2. **Did we prioritize suppliers in the right order?** At each simulated day, rank whom to pay first, second, third, and so on using the restaurant's operational runway: inventory days remaining relative to delivery lead time, due days, supplier criticality, payment-unlocked delivery, and available cash. Evaluate the ordered plan by its downstream ProcureGym outcomes, not only by agreement with a hand-written ranking.
+2. **Did we prioritize suppliers in the right order?** At each simulated day, rank whom to pay first, second, third, and so on using the restaurant's operational runway: inventory days remaining relative to delivery lead time, due days, supplier criticality, payment-unlocked delivery, and available cash. Record **who to pay, what invoice and amount to pay, and when**, then score whether that ordered plan protects the restaurant's remaining operating runway through its downstream ProcureGym outcomes—not only by agreement with a hand-written ranking.
 3. **Did we take the right payment action?** Check that the chosen action targets the right verified supplier and invoice, at the right simulated time, for the exact full outstanding amount. The learned policy may select among legal actions; it may not invent a supplier, invoice, currency, or amount.
 
 These are reported as three reward/metric components rather than one opaque score:
@@ -229,7 +229,7 @@ These are reported as three reward/metric components rather than one opaque scor
 | Priority quality | Critical restaurant runway protected, fewer stockout/disruption days, sensible ordered schedule | Critical stockout, avoidable supplier disruption, excessive late fees, poor schedule regret | Ranking cannot bypass document verification or current state |
 | Payment action correctness | Right composite identity, exact full amount, legal timing, nonnegative cash | Wrong supplier/invoice, wrong amount/currency, duplicate, stale, or over-budget action | Invalid actions are masked during learning and independently blocked by the verifier |
 
-For the locked four-invoice scenario, C5 should compare the policy with Earliest Due First and, when implemented, a bounded exhaustive legal-schedule oracle. The oracle is an evaluation reference, not a production policy. Any reported aggregate reward must be shown beside all three component scores and raw outcomes.
+For the locked four-invoice scenario, C5 compares the policy with Earliest Due First and the implemented bounded exhaustive legal-schedule oracle. The oracle is an evaluation reference, not a production policy. Any reported aggregate reward must be shown beside all three component scores and raw outcomes.
 
 ### 7.1 Supervised document reader
 
@@ -267,6 +267,8 @@ Illustrative reward configuration:
 Reward is subordinate to hard constraints. The router may never override document grounding, candidate ambiguity, evidence, or auto-accept safety. The downstream procurement verifier independently enforces supplier, duplicate, amount, cash, and state-version rules.
 
 Fitting and threshold selection use only declared training/development data or synthetic training fixtures. The locked test split remains untouched until the policy is frozen and evaluated once. Until a trained policy beats calibrated fixed thresholds on held-out data, the product must say **bandit-ready** rather than claim an RL improvement.
+
+**30 August 2026 Router Lab checkpoint:** the implemented tabular contextual bandit was evaluated on seven held-out synthetic development rows. It produced four correct automatic identities, zero wrong automatic accepts, three reviews, and average reward `4.6621`; the fixed evidence gate produced three correct automatic identities, zero wrong automatic accepts, four reviews, and average reward `2.9029`; always-review produced seven reviews and average reward `-2.3179`. All seven development context bins also occur in training, and no frozen test split has been evaluated. This supports only a within-bin development result—not generalization, live-invoice accuracy, or any claim about supplier ranking or payment actions.
 
 ### 7.3 Procurement policy and ProcureGym
 
@@ -773,15 +775,21 @@ These assignments were confirmed by Wilson on 30 August 2026. Multiple names ind
 
 | Claim state | Category | Scope | Dependencies | Deliverable / done test | Owner / delivery |
 |---|---|---|---|---|---|
-| **CLAIMED** | **C0 — Pivot contract and locked fixtures** | Freeze schemas, enums, reasons, primary invoices, restaurant, lookup, seed, AP lifecycle, and exact full-payment proof. Keep AR and partial payments out. | All component owners | One invoice and receipt fixture validate end to end; no P0 contract requires AR or partial payments. | **Wilson / @skylarwooster · VERIFIED · 22 focused and 68 full-suite tests passed at freeze** |
-| **CLAIMED** | **C1 — OCR and document ingestion** | Invoice/receipt image intake, ID/hash, OCR words, boxes, raw text, metadata, fallback, and failure behavior. | Locked images and OCR schema | One command produces contract-valid OCR for both document types; missing OCR yields labeled replay or review, never invented identity. | **David / @cheezburgerz + Ryan Nie + Dillon · Wilson integration help · NOT VERIFIED** |
-| **CLAIMED** | **C2 — Local specialist, evidence, and document gate** | Package Ryan's invoice adapter; return value, entity tokens/boxes/scores, latency, version, failures, and anchored-rule candidate; merge invoice proposals and decide verified identity or document review. Receipt fields remain OCR-plus-rules. | C1; Ryan's artifact; license review | Another member runs correct, wrong, missing, ungrounded, ambiguous, and rule/model-disagreement fixtures outside a notebook; unsafe identity never reaches C3 and every failure remains in metrics. | **Ryan Nie + Dillon · Wilson integration help · NOT VERIFIED** |
-| **CLAIMED** | **C3 — Supplier lookup and restaurant state** | Composite lookup, synthetic invoices, exact cash, inventory, due dates, criticality, status, versioning, and AP lifecycle through verified receipt proof. | C0 contract; C2 verified identity for live integration | $5,000 cash and $6,200 obligations reproduce exactly; unknown IDs activate nothing; only exact full-payment proof closes an obligation. | **Wilson / @skylarwooster · IN PROGRESS** |
-| **CLAIMED** | **C4 — Recommendation, verifier, and governance** | Implement Criticality-Aware Greedy v1, daily batch schema, reasons, hard checks, operator controls, reverification, and audit events. | C3; document gate | Four-invoice batch is deterministic; unsafe, modified-unverified, unapproved, or stale batches cannot reach ProcureGym. | **Ryan Nie + Dillon · Wilson integration help · NOT VERIFIED** |
-| **CLAIMED** | **C5 — ProcureGym, reward, and baselines** | Seeded batch reset/step, transitions, horizon, three-axis scorecard, raw metrics, reward, Earliest Due First, legal-schedule oracle when available, and fixed evaluation executor. | C0, C2 identity result, C3, C4 approved-batch contract | Same state runs reproducibly under both P0 policies; identity, ordered ranking, and exact action correctness remain separate; only approved batches change state. | **Sasa P + Wilson / @skylarwooster · IN PROGRESS** |
-| **CLAIMED** | **C6 — Contextual-bandit Router Lab** | Action matrix, constrained reward, training/development split, frozen test, and fixed-gate comparison. | C1/C2 outputs; locked labels | Report learned router only if it beats declared baselines without more unsafe accepts; otherwise show negative result. | **David / @cheezburgerz + Ryan Nie + Dillon · Wilson integration help · NOT VERIFIED · P1** |
-| **CLAIMED** | **C7 — Demo UI, orchestration, and deployment** | Interactive Eval Lab, three-axis RL scorecard, visible tokens/model/provenance, AP explanation, invoice-to-receipt lifecycle, Streamlit path, health/errors, live/replay labels, public URL, and offline backup. | Stable C0–C5 contracts | Clean-browser 2–3 minute invoice→receipt demo works; public and offline paths pass rehearsal. | **Wilson / @skylarwooster + Sasa P + Ryan Nie + Dillon + David / @cheezburgerz · IN PROGRESS** |
-| **CLAIMED** | **C8 — Evaluation, QA, and presentation proof** | Locked three-axis evaluation, invoice/action/receipt adversarial attacks, results card, runbook, talk track, and release checklist. | All P0 outputs | One command proves identity correctness, priority ranking/outcomes, exact action validity, and zero unapproved or unproved lifecycle mutations; each public claim is reproducible or labeled planned. | **Sasa P · Wilson integration help · NOT VERIFIED** |
+| **CLAIMED** | **C0 — Pivot contract and locked fixtures** | Freeze schemas, enums, reasons, primary invoices, restaurant, lookup, seed, AP lifecycle, and exact full-payment proof. Keep AR and partial payments out. | All component owners | One invoice and receipt fixture validate end to end; no P0 contract requires AR or partial payments. | **Wilson / @skylarwooster · VERIFIED · fixture hash and mutation tests pass** |
+| **CLAIMED** | **C1 — OCR and document ingestion** | Invoice/receipt image intake, ID/hash, OCR words, boxes, raw text, metadata, fallback, and failure behavior. | Locked images and OCR schema | One command produces contract-valid OCR for both document types; missing OCR yields labeled replay or review, never invented identity. | **David / @cheezburgerz + Ryan Nie + Dillon · Wilson reference implementation · INTEGRATION PASS · owner sign-off pending** |
+| **CLAIMED** | **C2 — Local specialist, evidence, and document gate** | Package Ryan's invoice adapter; return value, entity tokens/boxes/scores, latency, version, failures, and anchored-rule candidate; merge invoice proposals and decide verified identity or document review. Receipt fields remain OCR-plus-rules. | C1; Ryan's artifact; license review | Another member runs correct, wrong, missing, ungrounded, ambiguous, and rule/model-disagreement fixtures outside a notebook; unsafe identity never reaches C3 and every failure remains in metrics. | **Ryan Nie + Dillon · Wilson reference implementation · INTEGRATION PASS · owner sign-off and model-license clarification pending** |
+| **CLAIMED** | **C3 — Supplier lookup and restaurant state** | Composite lookup, synthetic invoices, exact cash, inventory, due dates, criticality, status, versioning, and AP lifecycle through verified receipt proof. | C0 contract; C2 verified identity for live integration | $5,000 cash and $6,200 obligations reproduce exactly; unknown IDs activate nothing; only exact full-payment proof closes an obligation. | **Wilson / @skylarwooster · VERIFIED · exact lookup, state, and AP proof tests pass** |
+| **CLAIMED** | **C4 — Recommendation, verifier, and governance** | Implement Criticality-Aware Greedy v1, daily batch schema, reasons, hard checks, operator controls, reverification, and audit events. | C3; document gate | Four-invoice batch is deterministic; unsafe, modified-unverified, unapproved, or stale batches cannot reach ProcureGym. | **Ryan Nie + Dillon · Wilson reference implementation · INTEGRATION PASS · owner sign-off pending** |
+| **CLAIMED** | **C5 — ProcureGym, reward, and baselines** | Seeded batch reset/step, transitions, horizon, three-axis scorecard, raw metrics, reward, Earliest Due First, legal-schedule oracle when available, and fixed evaluation executor. | C0, C2 identity result, C3, C4 approved-batch contract | Same state runs reproducibly under both P0 policies; identity, ordered ranking, and exact action correctness remain separate; only approved batches change state. | **Sasa P + Wilson / @skylarwooster · INTEGRATION PASS · Sasa co-owner sign-off pending** |
+| **CLAIMED** | **C6 — Contextual-bandit Router Lab** | Action matrix, constrained reward, training/development split, frozen test, and fixed-gate comparison. | C1/C2 outputs; locked labels | Report learned router only if it beats declared baselines without more unsafe accepts; otherwise show negative result. | **David / @cheezburgerz + Ryan Nie + Dillon · Wilson reference implementation · DEV LAB IMPLEMENTED · NOT VERIFIED · P1 · no frozen-test/generalization claim** |
+| **CLAIMED** | **C7 — Demo UI, orchestration, and deployment** | Interactive Eval Lab, three-axis RL scorecard, visible tokens/model/provenance, AP explanation, invoice-to-receipt lifecycle, Streamlit path, health/errors, live/replay labels, public URL, and offline backup. | Stable C0–C5 contracts | Clean-browser 2–3 minute invoice→receipt demo works; public and offline paths pass rehearsal. | **Wilson / @skylarwooster + Sasa P + Ryan Nie + Dillon + David / @cheezburgerz · INTEGRATION AND PUBLIC QUICK-TUNNEL REHEARSAL PASS · permanent Streamlit deployment and owner sign-off pending** |
+| **CLAIMED** | **C8 — Evaluation, QA, and presentation proof** | Locked three-axis evaluation, invoice/action/receipt adversarial attacks, results card, runbook, talk track, and release checklist. | All P0 outputs | One command proves identity correctness, priority ranking/outcomes, exact action validity, and zero unapproved or unproved lifecycle mutations; each public claim is reproducible or labeled planned. | **Sasa P · Wilson reference implementation · 192 passed, 1 opt-in skip; offline acceptance 9/9; live acceptance 10/10 · Sasa owner sign-off pending** |
+
+### 30 August 2026 integrated implementation checkpoint
+
+The Wilson reference path now runs invoice PNG/JPEG ingestion, real Tesseract OCR, the revision-pinned Ryan LayoutLMv3 adapter, fail-closed document review, exact synthetic lookup, deterministic first/second/third supplier ranking, independently verified exact payment actions, explicit operator approval, a seeded ProcureGym transition, receipt OCR/rules, and exact full-payment proof through simulated `PAID_CONFIRMED`. The clean-browser path completed through the public Quick Tunnel. The full suite reports **192 passed and one intentionally opt-in Tesseract smoke skipped**; the offline acceptance artifact reports **9/9**, and the real-model artifact reports **10/10**.
+
+Those integration results do not replace the named owners' review. They also do not mean real money moved, do not establish aggregate LayoutLMv3 accuracy, and do not establish Router Lab generalization. Permanent Streamlit hosting still requires Sasa's repository-admin deployment step.
 
 ### Parallel-work rule
 
@@ -895,7 +903,7 @@ flowchart LR
 
 | Risk | Why it matters | Mitigation |
 |---|---|---|
-| Current code still shows InvoiceAgent | Team may mistake it for completed ProcureAgent | Build one new vertical slice first; keep implementation warning |
+| Permanent deployment and owner sign-off remain open | A tested reference path is not the same as team acceptance or durable hosting | Keep the tested commit, acceptance artifacts, temporary/offline fallback, and named-owner sign-offs visible |
 | Model supports only invoice number | Other fields could be falsely attributed to AI | Label supplier data as synthetic lookup |
 | OCR missing or slow | LayoutLMv3 needs external words and boxes | David owns adapter; retain labeled precomputed fixtures |
 | Unsupported multilingual claim | Current model is English/SROIE-like | P0 English; route experiments to review; report counts before claims |
@@ -938,7 +946,7 @@ flowchart LR
 - Offline contextual-bandit replay evaluation: <https://arxiv.org/abs/1003.5956>
 - Doubly robust contextual-bandit evaluation: <https://arxiv.org/abs/1103.4601>
 
-Dataset, code, base-model, and adapter licenses must be verified separately. The repository's MIT license does not automatically relicense model weights or datasets.
+Dataset, code, base-model, and adapter licenses must be verified separately. The repository's MIT license does not automatically relicense model weights or datasets. At the 30 August freeze, the adapter card declares MIT while the Microsoft base model declares CC BY-NC-SA 4.0 and Ryan's dataset card lists its license as unknown; Ryan must clarify the intended weight/data usage before anyone makes a broader licensing claim.
 
 ---
 

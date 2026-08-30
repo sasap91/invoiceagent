@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "invoiceagent"
-version = "0.1.0"
-description = "A small-first invoice and payment reconciliation assistant for small-business cash flow."
+version = "0.2.0"
+description = "A small-model restaurant Accounts Payable copilot with governed ProcureGym evaluation."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -27,6 +27,9 @@ model = [
   "torch>=2.2,<3",
   "transformers>=4.48,<5",
   "peft>=0.14,<1",
+]
+assets = [
+  "fal-client>=0.14,<1",
 ]
 
 [tool.setuptools]

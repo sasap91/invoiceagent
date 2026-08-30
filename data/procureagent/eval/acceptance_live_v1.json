@@ -1,0 +1,295 @@
+{
+  "checks": [
+    {
+      "details": {
+        "active_invoices": 4,
+        "cash_minor": 500000,
+        "obligations_minor": 620000,
+        "seed": 138
+      },
+      "name": "locked_contract",
+      "passed": true
+    },
+    {
+      "details": {
+        "ordered_actions": [
+          {
+            "action": "PAY",
+            "amount_minor": 150000,
+            "invoice_number": "FF-10482",
+            "rank": 1,
+            "supplier_id": "fresh_farms"
+          },
+          {
+            "action": "PAY",
+            "amount_minor": 250000,
+            "invoice_number": "PF-25031",
+            "rank": 2,
+            "supplier_id": "prime_foods"
+          },
+          {
+            "action": "DEFER",
+            "amount_minor": 150000,
+            "invoice_number": "PR-15007",
+            "rank": 3,
+            "supplier_id": "packright"
+          },
+          {
+            "action": "VERIFY",
+            "amount_minor": 70000,
+            "invoice_number": "CP-70019",
+            "rank": 4,
+            "supplier_id": "cleanpro"
+          }
+        ]
+      },
+      "name": "deterministic_priority_and_exact_actions",
+      "passed": true
+    },
+    {
+      "details": {
+        "cash_minor": 100000,
+        "day": 1,
+        "paid_invoice_numbers": [
+          "FF-10482",
+          "PF-25031"
+        ],
+        "reward": "0.800",
+        "simulation_only": true
+      },
+      "name": "governed_atomic_step",
+      "passed": true
+    },
+    {
+      "details": {
+        "blocked_attacks": {
+          "blocked_batch_cannot_be_approved": true,
+          "over_budget_blocked": true,
+          "stale_approved_batch_cannot_execute": true,
+          "stale_batch_blocked": true,
+          "unapproved_batch_cannot_execute": true,
+          "wrong_amount_blocked": true
+        },
+        "restaurant_state_unchanged_on_rejection": true
+      },
+      "name": "action_and_governance_attacks",
+      "passed": true
+    },
+    {
+      "details": {
+        "action_validity": {
+          "actions_proposed": 16,
+          "batches_proposed": 7,
+          "batches_verified": 7,
+          "blocked_batches": 0,
+          "duplicate_actions": 0,
+          "eligible_pay_actions": 2,
+          "exact_full_amount_actions": 16,
+          "invalid_pay_timing_actions": 0,
+          "masked_action_violations": 0,
+          "over_budget_batches": 0,
+          "unsafe_executed_batches": 0,
+          "verified_identity_actions": 16,
+          "wrong_amount_actions": 0,
+          "wrong_supplier_actions": 0
+        },
+        "criticality_high_stockout_days": 0,
+        "criticality_regret": "0.000",
+        "criticality_reward": "-12.400",
+        "day_zero_ranking": {
+          "day": 0,
+          "state_version": 1,
+          "suppliers": [
+            {
+              "criticality": "high",
+              "delivery_lead_days": 1,
+              "due_in_days": 1,
+              "exact_amount_minor": 150000,
+              "inventory_days_remaining": 2,
+              "invoice_number": "FF-10482",
+              "proposed_action": "PAY",
+              "rank": 1,
+              "runway_margin_days": 1,
+              "supplier_id": "fresh_farms"
+            },
+            {
+              "criticality": "high",
+              "delivery_lead_days": 2,
+              "due_in_days": 3,
+              "exact_amount_minor": 250000,
+              "inventory_days_remaining": 3,
+              "invoice_number": "PF-25031",
+              "proposed_action": "PAY",
+              "rank": 2,
+              "runway_margin_days": 1,
+              "supplier_id": "prime_foods"
+            },
+            {
+              "criticality": "low",
+              "delivery_lead_days": 3,
+              "due_in_days": -1,
+              "exact_amount_minor": 150000,
+              "inventory_days_remaining": 20,
+              "invoice_number": "PR-15007",
+              "proposed_action": "DEFER",
+              "rank": 3,
+              "runway_margin_days": 17,
+              "supplier_id": "packright"
+            },
+            {
+              "criticality": "medium",
+              "delivery_lead_days": 1,
+              "due_in_days": 0,
+              "exact_amount_minor": 70000,
+              "inventory_days_remaining": 15,
+              "invoice_number": "CP-70019",
+              "proposed_action": "VERIFY",
+              "rank": 4,
+              "runway_margin_days": 14,
+              "supplier_id": "cleanpro"
+            }
+          ]
+        },
+        "edf_high_stockout_days": 2,
+        "edf_regret": "56.400",
+        "edf_reward": "-68.800",
+        "identity_scope": "upstream_c2_verified_input_not_rescored",
+        "legal_schedules": 169,
+        "oracle_reward": "-12.400",
+        "oracle_schedules": 512
+      },
+      "name": "three_axis_procuregym_comparison",
+      "passed": true
+    },
+    {
+      "details": {
+        "artifact_kind": "hash_bound_captured_replay_not_a_live_run",
+        "candidate": "FF-10482",
+        "current_invoice_sha256": "d25682a2b982a6552fac707c5c09d3ac2a588e27c82c820c55cb65f914bfe155",
+        "document_gate": "REVIEW_REQUIRED",
+        "expected": "FF-10482",
+        "gate_reasons": [
+          "LOW_MODEL_CONFIDENCE"
+        ],
+        "live_inference": true,
+        "scope": "one synthetic invoice smoke test; not aggregate model accuracy"
+      },
+      "name": "captured_identity_axis",
+      "passed": true
+    },
+    {
+      "details": {
+        "anchored_invoice_candidates": [
+          "FF-10482"
+        ],
+        "invoice_engine": "tesseract 5.5.3",
+        "invoice_quality": "0.9337552758461538461538461538",
+        "invoice_words": 65,
+        "parsed_receipt": {
+          "amount_minor": 150000,
+          "currency": "USD",
+          "invoice_number": "FF-10482",
+          "method": "ocr_plus_deterministic_rules",
+          "paid_date": "2026-08-30",
+          "receipt_id": "RCPT-FF-10482",
+          "supplier_id": "fresh_farms"
+        },
+        "receipt_engine": "tesseract 5.5.3",
+        "receipt_quality": "0.9555632297872340425531914894",
+        "receipt_words": 47
+      },
+      "name": "real_local_ocr",
+      "passed": true
+    },
+    {
+      "details": {
+        "checks_passed": [
+          "PARSED_RECEIPT_BOUND_TO_OCR",
+          "FIELDS_GROUNDED_IN_OCR",
+          "SIMULATED_PAYMENT_APPROVED",
+          "UNUSED_RECEIPT_ID",
+          "SUPPLIER_MATCH",
+          "INVOICE_MATCH",
+          "FULL_AMOUNT_MATCH",
+          "CURRENCY_MATCH"
+        ],
+        "proof_status": "VERIFIED",
+        "reason_codes": []
+      },
+      "name": "exact_receipt_proof",
+      "passed": true
+    },
+    {
+      "details": {
+        "blocked_attacks": {
+          "ambiguous_amount_ocr": true,
+          "duplicate_receipt": true,
+          "duplicate_receipt_id": true,
+          "forged_parsed_evidence": true,
+          "partial_amount": true,
+          "wrong_currency": true,
+          "wrong_invoice": true,
+          "wrong_supplier": true
+        },
+        "final_status": "paid_confirmed",
+        "real_money_moved": false
+      },
+      "name": "ap_lifecycle_and_receipt_attacks",
+      "passed": true
+    },
+    {
+      "details": {
+        "candidate": "FF-10482",
+        "claim_scope": "one synthetic invoice smoke test",
+        "document_gate": "REVIEW_REQUIRED",
+        "entity_mean_margin": "0.3509486615657806",
+        "entity_min_confidence": "0.6363860964775085",
+        "evidence_tokens": [
+          "FF-10482"
+        ],
+        "expected": "FF-10482",
+        "gate_reasons": [
+          "LOW_MODEL_CONFIDENCE"
+        ],
+        "latency_ms": "2021.3",
+        "model_version": "ryanznie/layoutlmv3-lora-invoice-number@7dc28f5a3b14aa100ba432ee1b0a6cac6c7b2c5c (base microsoft/layoutlmv3-base@cfbbbff0762e6aab37086fdd4739ad14fe7d5db4) on mps",
+        "status": "SUCCESS",
+        "strict_exact": true
+      },
+      "name": "live_model_smoke",
+      "passed": true
+    }
+  ],
+  "checks_passed": 10,
+  "checks_total": 10,
+  "live_model": {
+    "candidate": "FF-10482",
+    "claim_scope": "one synthetic invoice smoke test",
+    "document_gate": "REVIEW_REQUIRED",
+    "entity_mean_margin": "0.3509486615657806",
+    "entity_min_confidence": "0.6363860964775085",
+    "evidence_tokens": [
+      "FF-10482"
+    ],
+    "expected": "FF-10482",
+    "gate_reasons": [
+      "LOW_MODEL_CONFIDENCE"
+    ],
+    "latency_ms": "2021.3",
+    "model_version": "ryanznie/layoutlmv3-lora-invoice-number@7dc28f5a3b14aa100ba432ee1b0a6cac6c7b2c5c (base microsoft/layoutlmv3-base@cfbbbff0762e6aab37086fdd4739ad14fe7d5db4) on mps",
+    "status": "SUCCESS",
+    "strict_exact": true
+  },
+  "passed": true,
+  "scenario_id": "restaurant_demo_v1",
+  "schema_version": "procureagent-acceptance-v1",
+  "seed": 138,
+  "truth_boundary": {
+    "identity_router_dev_lab_trained": true,
+    "identity_router_frozen_test_evaluated": false,
+    "procurement_rl_policy_trained": false,
+    "real_money_moved": false,
+    "receipt_extractor": "tesseract_plus_deterministic_rules",
+    "simulation_only": true
+  }
+}

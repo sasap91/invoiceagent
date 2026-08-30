@@ -1,0 +1,27 @@
+{
+  "asset": "fresh_farms_payment_receipt.png",
+  "sha256": "073489e1db12d8740e6486703adae907263a5dafd9614b98b5aab08ff170aaed",
+  "source": "deterministic_svg_fixture",
+  "generated_on": "2026-08-30",
+  "purpose": "synthetic full-payment receipt for OCR and AP proof-gate QA",
+  "contains_real_payment_data": false,
+  "fal_generation": {
+    "requested": true,
+    "model": "fal-ai/flux-2",
+    "completed": false,
+    "blocker": "Fal account returned HTTP 403: exhausted balance",
+    "secret_committed": false
+  },
+  "ocr_smoke": {
+    "engine": "tesseract 5.5.3",
+    "required_values_read": [
+      "RCPT-FF-10482",
+      "Fresh Farms",
+      "fresh_farms",
+      "FF-10482",
+      "2026-08-30",
+      "USD",
+      "$1,500.00"
+    ]
+  }
+}

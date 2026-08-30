@@ -1,1 +1,1 @@
--e .[demo,test]
+-e .[demo,model]
