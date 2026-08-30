@@ -1,5 +1,7 @@
 # InvoiceAgent
 
+![Sample tax invoice used in the InvoiceAgent OCR demonstration](docs/assets/X51005230605.jpg)
+
 **From a paper invoice to matched payment proof—locally, visibly, and with a human in control.**
 
 ## Situation
