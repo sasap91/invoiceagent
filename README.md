@@ -208,7 +208,7 @@ HF_HUB_DISABLE_PROGRESS_BARS=1 \
   --output data/procureagent/eval/acceptance_live_v1.json
 ```
 
-Current evidence: **233 passed, 2 intentionally opt-in real-Tesseract smokes skipped** in the default run; the focused Tesseract/UI/reward run passes **52/52** with both smokes enabled. Offline acceptance is **9/9** and real-model acceptance is **10/10**. The safety harness blocks **6/6** action/governance attacks and **8/8** receipt ambiguity, mismatch, duplicate, and forgery attacks.
+Current evidence: **262 passed, 2 intentionally opt-in real-Tesseract smokes skipped** in the default run; the focused Tesseract/UI/reward run passes **56/56** with both smokes enabled. Offline acceptance is **9/9** and real-model acceptance is **10/10**. The safety harness blocks **6/6** action/governance attacks and **8/8** receipt ambiguity, mismatch, duplicate, and forgery attacks.
 
 One real-checkpoint smoke:
 
