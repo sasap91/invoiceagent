@@ -1268,6 +1268,16 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
         )
         render_document_analysis(analysis)
         st.markdown("#### Your decision")
+        selected = analysis.selected_model_candidate
+        suggestion = (
+            selected.candidate.invoice_number
+            if selected is not None
+            else (analysis.rule_candidates[0].invoice_number if analysis.rule_candidates else None)
+        )
+        if suggestion:
+            st.info(f"Suggested invoice number: **{esc(suggestion)}**")
+        else:
+            st.warning("No suggested invoice number — the rule and the model both found no candidate.")
         st.caption("No choice is preselected. Confirm, correct, or reject what the model displayed.")
         review_choice = st.radio(
             "Document review decision",
