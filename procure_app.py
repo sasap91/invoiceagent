@@ -41,6 +41,7 @@ from procureagent.contracts import (  # noqa: E402
     ProcurementAction,
     VerifierResult,
 )
+from procureagent.evaluation import compare_policies  # noqa: E402
 from procureagent.ui_adapters import (  # noqa: E402
     RejectedDay,
     UiFlowError,
@@ -684,6 +685,57 @@ def render_episode_history(episode: Any) -> None:
     if rows:
         st.markdown("**Episode audit trail**")
         render_table(rows)
+        render_schedule_comparison(episode)
+
+
+def render_schedule_comparison(episode: Any) -> None:
+    """Show WHEN each invoice was paid, beside the day the oracle would choose.
+
+    The bounded oracle already computes a payment day per invoice; nothing
+    rendered it, so the timing decision was invisible. It is an evaluation
+    reference that sees the whole frozen scenario, not a deployable policy.
+    """
+
+    scenario = episode.environment.scenario
+    try:
+        comparison = compare_policies(scenario)
+    except Exception as exc:  # evaluation is bounded; never break the demo over it
+        st.caption(f"Schedule oracle unavailable: {type(exc).__name__}: {exc}")
+        return
+
+    actual: dict[str, int] = {}
+    for item in episode.history:
+        if isinstance(item, RejectedDay):
+            continue
+        for number in item.info.get("paid_invoice_numbers", ()):
+            actual.setdefault(number, item.info["day_before"])
+
+    names = supplier_names()
+    rows = []
+    for payment in comparison.schedule_oracle.scheduled_payments:
+        chosen = actual.get(payment.invoice_number)
+        rows.append(
+            {
+                "Supplier": names.get(payment.supplier_id, payment.supplier_id),
+                "Invoice": payment.invoice_number,
+                "Amount": format_minor(payment.exact_amount_minor),
+                "Operator approved on day": "not yet" if chosen is None else chosen,
+                "Oracle would pay on day": (
+                    "never" if payment.payment_day is None else payment.payment_day
+                ),
+            }
+        )
+    if not rows:
+        return
+    st.markdown("**Payment timing · operator versus bounded oracle**")
+    render_table(rows)
+    st.caption(
+        f"Oracle enumerated {comparison.schedule_oracle.enumerated_schedules} schedules "
+        f"({comparison.schedule_oracle.legal_schedules} legal) under reward "
+        f"{comparison.schedule_oracle.objective}. It is an evaluation reference that "
+        "sees the whole frozen scenario, not a policy ProcureAgent could run. "
+        "'Never' means paying the invoice at all costs more reward than it saves."
+    )
 
 
 def render_day_console(episode: Any) -> None:
@@ -712,6 +764,7 @@ def render_day_console(episode: Any) -> None:
             else f"TRUNCATED · reached the {episode.horizon_days}-day horizon"
         )
         stage_badge("Episode complete", outcome, "ok" if environment.truncated else "stop")
+        render_schedule_comparison(episode)
         render_episode_history(episode)
         st.info("Use “Restart 7-day episode at day 0” above to run it again.")
         return

@@ -386,3 +386,27 @@ def test_eval_cashflow_scenario_lets_the_agent_choose_a_payment_day() -> None:
             if invoice.supplier_id == "packright"
         )
         assert packright.payment_status.value == "simulated_payment_approved"
+
+
+def test_eval_renders_the_payment_timing_comparison() -> None:
+    """The oracle's chosen payment day must be visible, not just computed."""
+
+    from tests.test_procure_ui_adapters import analyzed_document
+    import procureagent.ui_adapters as adapters
+
+    with patch.object(
+        adapters, "analyze_invoice_upload", return_value=analyzed_document()
+    ):
+        app = boot()
+        app.radio(key="eval-episode-scenario-choice").set_value(
+            "Cash-flow · restaurant_cashflow_v1"
+        ).run()
+        app.button(key="eval-run-document-adapter").click().run()
+        app.button(key="eval-record-human-review").click().run()
+        app.button(key="eval-approve-batch").click().run()
+        assert not app.exception
+
+        text = page_text(app)
+        assert "Payment timing · operator versus bounded oracle" in text
+        assert "evaluation reference" in text
+        assert "not a policy ProcureAgent could run" in text
