@@ -44,6 +44,7 @@ from procureagent.contracts import (  # noqa: E402
     ProcurementAction,
     VerifierResult,
 )
+from procureagent.document import align_model_token_predictions  # noqa: E402
 from procureagent.ui_adapters import (  # noqa: E402
     RejectedDay,
     UiFlowError,
@@ -68,6 +69,7 @@ from procureagent.receipt_reward import (  # noqa: E402
 )
 from procureagent.token_labels import (  # noqa: E402
     TokenLabel,
+    TokenSource,
     label_invoice_tokens,
     label_receipt_tokens,
 )
@@ -232,6 +234,10 @@ CSS = """
     border-radius:7px; color:#ecf5f2; background:#1b3935; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
   .pa-token b { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.78rem; font-weight:600; }
   .pa-token small { color:#9eb9b3; font-size:.55rem; line-height:1.15; }
+  .pa-token.muted { opacity:.28; filter:saturate(.2); border-color:#647873; background:#17302d; }
+  .pa-token-map.focus-preview { max-height:none; overflow:visible; background:#eef1ed; border-color:#d7ddd8; }
+  .pa-token-map.focus-preview .pa-token.muted { color:#52625e; background:#e5e9e5; border-color:#cbd3ce; }
+  .pa-token-map.focus-preview .pa-token.muted small { color:#71807b; }
   .pa-token.target { border-color:#70c7d2; background:#123f45; box-shadow:inset 0 -2px 0 #70c7d2; }
   .pa-token.target small { color:#a9e2e8; }
   .pa-token.invoice-number { border-color:#67c6d2; background:#123f45; box-shadow:inset 0 -3px 0 #67c6d2; }
@@ -400,7 +406,7 @@ GUIDED_WIDGET_KEYS = (
 # can therefore look identical while failing ``isinstance`` after a class was
 # redefined. Bump this value whenever workflow object schemas change; unrelated
 # preferences such as the selected route remain untouched.
-APP_SESSION_SCHEMA = "invoiceagent-guided-v2-20260830"
+APP_SESSION_SCHEMA = "invoiceagent-guided-v3-layoutlm-tokens-20260830"
 if st.session_state.get("invoiceagent-session-schema") != APP_SESSION_SCHEMA:
     for stale_key in (
         *FLOW_KEYS,
@@ -450,6 +456,15 @@ TOKEN_DISPLAY_LABELS = {
     TokenLabel.CURRENCY: "Currency",
     TokenLabel.DATE: "Paid date",
     TokenLabel.SUPPLIER: "Supplier",
+}
+
+TOKEN_SOURCE_DISPLAY_LABELS = {
+    TokenSource.OCR_ONLY: "ocr only",
+    TokenSource.INVOICE_ANCHORED_RULE: "invoice anchored rule",
+    TokenSource.RYAN_INVOICE_NUMBER_MODEL: "LayoutLMv3 invoice-number model",
+    TokenSource.INVOICE_RULE_AND_RYAN_MODEL: "invoice rule and LayoutLMv3 model",
+    TokenSource.INVOICE_AMOUNT_RULE: "invoice amount rule",
+    TokenSource.RECEIPT_FIELD_RULE: "receipt field rule",
 }
 
 TOKEN_CSS_CLASSES = {
@@ -699,7 +714,7 @@ def invoice_token_labels(analysis: Any) -> dict[int, str]:
     return {
         token.index: (
             f"{TOKEN_DISPLAY_LABELS[token.label]} · "
-            f"{token.source.value.replace('_', ' ').lower()}"
+            f"{TOKEN_SOURCE_DISPLAY_LABELS[token.source]}"
         )
         for token in tokens
         if token.label is not TokenLabel.OTHER
@@ -711,7 +726,7 @@ def receipt_token_labels(ocr: Any, parsed: Any) -> dict[int, str]:
     return {
         token.index: (
             f"{TOKEN_DISPLAY_LABELS[token.label]} · "
-            f"{token.source.value.replace('_', ' ').lower()}"
+            f"{TOKEN_SOURCE_DISPLAY_LABELS[token.source]}"
         )
         for token in tokens
         if token.label is not TokenLabel.OTHER
@@ -723,6 +738,8 @@ def render_token_map(
     label_by_sequence: dict[int, str],
     *,
     default_label: str = "Other text",
+    muted_default: bool = False,
+    preview: bool = False,
 ) -> list[dict[str, Any]]:
     rows = build_token_label_rows(words, label_by_sequence, default_label=default_label)
     tokens = []
@@ -735,7 +752,9 @@ def render_token_map(
             visible_kinds.append(label_kind)
         token_class = (
             f"pa-token target {category_class}" if category_class else (
-                "pa-token target" if target else "pa-token"
+                "pa-token target" if target else (
+                    "pa-token muted" if muted_default else "pa-token"
+                )
             )
         )
         tokens.append(
@@ -750,7 +769,8 @@ def render_token_map(
     st.markdown(
         f'<div class="pa-token-legend">{legend}'
         f'<i></i><span>{esc(default_label)}</span></div>'
-        f'<div class="pa-token-map" aria-label="OCR tokens and labels">{"".join(tokens)}</div>',
+        f'<div class="pa-token-map{" focus-preview" if preview else ""}" '
+        f'aria-label="OCR tokens and labels">{"".join(tokens)}</div>',
         unsafe_allow_html=True,
     )
     return rows
@@ -1237,6 +1257,7 @@ def render_ocr_result(
     *,
     labels: dict[int, str] | None = None,
     default_label: str = "Other text",
+    compact_targets: bool = False,
 ) -> None:
     st.markdown(f"#### {heading}")
     cols = st.columns(4)
@@ -1250,14 +1271,125 @@ def render_ocr_result(
     st.caption(
         f"Read locally by Tesseract {ocr.engine_version} · no document text left this app"
     )
-    rows = render_token_map(
+    selected_labels = labels or {}
+    rows = build_token_label_rows(
         ocr.words,
-        labels or {},
+        selected_labels,
         default_label=default_label,
     )
-    with st.expander(f"Inspect all {len(rows)} token boxes and confidence scores"):
+    if compact_targets:
+        target_sequences = tuple(
+            row["sequence"] for row in rows if row["label"] != default_label
+        )
+        if target_sequences:
+            visible_sequences = {
+                sequence
+                for target in target_sequences
+                for sequence in range(max(0, target - 4), target + 5)
+            }
+            preview_words = tuple(
+                word for word in ocr.words if word.sequence in visible_sequences
+            )
+            st.caption(
+                f"Focused preview · {len(target_sequences)} bookkeeping token(s) highlighted "
+                f"from {len(rows)} OCR tokens"
+            )
+            render_token_map(
+                preview_words,
+                selected_labels,
+                default_label=default_label,
+                muted_default=True,
+                preview=True,
+            )
+        else:
+            st.warning("OCR completed, but no target bookkeeping token was grounded.")
+    else:
+        render_token_map(
+            ocr.words,
+            selected_labels,
+            default_label=default_label,
+        )
+    with st.expander(
+        f"Inspect all {len(rows)} token boxes and confidence scores",
+        expanded=False,
+    ):
+        if compact_targets:
+            render_token_map(
+                ocr.words,
+                selected_labels,
+                default_label=default_label,
+                muted_default=True,
+            )
         render_table(rows)
         st.code(ocr.raw_text or "<no OCR text>")
+
+
+def _is_layoutlm_entity_label(label: str) -> bool:
+    return label not in {"O", "LABEL_0", "NOT_EVALUATED"}
+
+
+def layoutlm_token_rows(analysis: Any) -> list[dict[str, Any]]:
+    """Return every OCR word with honest model-evaluation provenance."""
+
+    aligned = align_model_token_predictions(analysis.model_run, analysis.ocr)
+    rows: list[dict[str, Any]] = []
+    for index, (word, prediction) in enumerate(zip(analysis.ocr.words, aligned)):
+        rows.append(
+            {
+                "OCR #": index,
+                "Word": word.text,
+                "LayoutLMv3 label": (
+                    prediction.label if prediction is not None else "NOT_EVALUATED"
+                ),
+                "Confidence": (
+                    str(prediction.confidence) if prediction is not None else "—"
+                ),
+                "Margin": str(prediction.margin) if prediction is not None else "—",
+                "Status": "MODEL_EVALUATED" if prediction is not None else "TOKENIZER_TRUNCATED",
+                "Box": (
+                    f"({word.normalized_box.x0},{word.normalized_box.y0},"
+                    f"{word.normalized_box.x1},{word.normalized_box.y1})"
+                ),
+            }
+        )
+    return rows
+
+
+def render_annotated_invoice_image(analysis: Any) -> None:
+    """Draw only aligned model evidence; truncated words remain visibly distinct."""
+
+    try:
+        from io import BytesIO
+
+        from PIL import Image, ImageDraw
+    except ImportError:
+        st.warning("Pillow is unavailable, so the model-box overlay cannot be drawn.")
+        return
+    aligned = align_model_token_predictions(analysis.model_run, analysis.ocr)
+    try:
+        image = Image.open(BytesIO(analysis.image.image_bytes)).convert("RGB")
+    except Exception as exc:
+        st.warning(f"Could not render the model-box overlay: {type(exc).__name__}")
+        return
+    draw = ImageDraw.Draw(image)
+    for word, prediction in zip(analysis.ocr.words, aligned):
+        if prediction is None:
+            color, width = "#9ca3af", 1
+        elif _is_layoutlm_entity_label(prediction.label):
+            color, width = "#dc2626", 4
+        else:
+            color, width = "#0284c7", 1
+        box = word.pixel_box
+        draw.rectangle((box.x0, box.y0, box.x1, box.y1), outline=color, width=width)
+    output = BytesIO()
+    image.save(output, format="PNG")
+    render_responsive_image(
+        output.getvalue(),
+        caption=(
+            "LayoutLMv3 evidence overlay · red = invoice-number token · blue = evaluated "
+            "background · gray = tokenizer did not evaluate"
+        ),
+    )
 
 
 def render_document_analysis(analysis: Any) -> None:
@@ -1304,6 +1436,21 @@ def render_document_analysis(analysis: Any) -> None:
             f"{run.latency_ms} ms. Confidence is not accuracy. The fixture answer key is used "
             "only after inference and was not provided to OCR or the model."
         )
+    if run.token_predictions:
+        token_rows = layoutlm_token_rows(analysis)
+        evaluated = sum(row["Status"] == "MODEL_EVALUATED" for row in token_rows)
+        render_annotated_invoice_image(analysis)
+        with st.expander(
+            f"LayoutLMv3 token evidence · {evaluated}/{len(token_rows)} OCR words evaluated",
+            expanded=True,
+        ):
+            st.caption(
+                "These are raw, OCR-index-aligned model outputs. NOT_EVALUATED means the "
+                "tokenizer truncated that word; it is never presented as model-predicted background."
+            )
+            render_table(token_rows)
+    else:
+        st.caption("Per-token LayoutLMv3 evidence is unavailable for this model run.")
     gate = analysis.gate
     detail = gate.status.value + (" · " + " · ".join(gate.reason_codes) if gate.reason_codes else "")
     stage_badge("Safety gate", detail, "ok" if gate.may_activate_lookup else "review")
@@ -1414,9 +1561,31 @@ def render_receipt_result(receipt: Any) -> Any:
     parsed = receipt.parsed
     render_ocr_result(
         receipt.ocr,
-        "Every receipt token",
+        "Receipt ID evidence",
         labels=receipt_token_labels(receipt.ocr, parsed),
+        compact_targets=True,
     )
+    gate = receipt.proof_gate
+    receipt_id_grounded = (
+        "PARSED_RECEIPT_BOUND_TO_OCR" in gate.checks_passed
+        and parsed.receipt_id is not None
+        and any(
+            item.field_name == "receipt_id" and item.value == parsed.receipt_id
+            for item in parsed.evidence
+        )
+    )
+    if receipt_id_grounded:
+        stage_badge(
+            "Receipt ID captured",
+            f"{parsed.receipt_id} · grounded in the uploaded OCR evidence",
+            "ok",
+        )
+        primary = st.columns(3)
+        primary[0].metric("Receipt ID", parsed.receipt_id)
+        primary[1].metric("OCR tokens processed", str(len(receipt.ocr.words)))
+        primary[2].metric("Grounding", "OCR MATCH")
+    else:
+        stage_badge("Receipt ID captured", "MISSING · manual review required", "stop")
     stage_badge(
         "Receipt fields read",
         f"{parsed.status.value} · {parsed.extraction_method}",
@@ -1425,20 +1594,65 @@ def render_receipt_result(receipt: Any) -> Any:
     fields = {"Receipt ID": parsed.receipt_id, "Supplier": parsed.supplier_name, "Supplier ID": parsed.supplier_id,
               "Invoice": parsed.invoice_number, "Amount": format_minor(parsed.amount_minor) if parsed.amount_minor is not None else None,
               "Currency": parsed.currency, "Paid date": parsed.paid_date}
-    render_table([{"Field": key, "Parsed value": value} for key, value in fields.items()])
-    gate = receipt.proof_gate
-    detail = gate.status.value + (" · " + " · ".join(gate.reason_codes) if gate.reason_codes else "")
-    stage_badge("Exact payment-proof check", detail, "ok" if gate.closes_obligation else "stop")
+    fields = {key: value if value is not None else "Not found" for key, value in fields.items()}
+    field_rows = [{"Field": key, "Parsed value": value} for key, value in fields.items()]
+    missing_payment_fields = sum(
+        value is None
+        for value in (
+            parsed.supplier_id,
+            parsed.invoice_number,
+            parsed.amount_minor,
+            parsed.currency,
+            parsed.paid_date,
+        )
+    )
+    if gate.closes_obligation:
+        render_table(field_rows)
+    else:
+        with st.expander("Manual matching details · why this ID cannot close AP yet"):
+            render_table(field_rows)
+            st.caption(
+                "A receipt ID identifies the uploaded document, but it does not by itself "
+                "prove which supplier invoice or payment amount it belongs to."
+            )
+            st.caption(
+                "Technical reason codes: "
+                + (" · ".join(gate.reason_codes) if gate.reason_codes else "none")
+            )
+    detail = (
+        gate.status.value
+        if gate.closes_obligation
+        else (
+            f"Payment proof incomplete · {missing_payment_fields} required fields missing"
+            if missing_payment_fields
+            else "Payment proof incomplete · exact fields do not match"
+        )
+    )
+    stage_badge("Exact payment-proof check", detail, "ok" if gate.closes_obligation else "review")
     st.caption("Checks passed: " + (" · ".join(gate.checks_passed) or "none"))
     st.caption(f"Source: {receipt.source.value} · provenance: {receipt.provenance}")
     if gate.closes_obligation:
         st.success(
-            "The supplier, invoice number, amount, currency and receipt ID all pass. "
+            "The receipt ID, supplier, invoice number, full amount, currency, and paid date all pass. "
             "Accounts Payable stays SIMULATED_PAYMENT_APPROVED until your separate confirmation."
         )
     else:
-        st.error("The receipt did not pass every exact check. Accounts Payable remains open.")
-    return render_reward_signal(gate)
+        if receipt_id_grounded:
+            st.warning(
+                f"Receipt ID {parsed.receipt_id} was captured from OCR. Supplier, invoice "
+                "number, full amount, currency, and paid date are still required, so this "
+                "is not payment proof. Accounts Payable remains SIMULATED_PAYMENT_APPROVED; "
+                "no second cash entry or PAID_CONFIRMED status was created."
+            )
+        else:
+            st.error(
+                "No grounded receipt ID was captured. Payment proof remains pending and "
+                "the lifecycle stays SIMULATED_PAYMENT_APPROVED."
+            )
+    reward = render_reward_signal(gate)
+    if not gate.closes_obligation:
+        st.caption("Receipt-ID capture alone receives SAFE_REVIEW · reward -1.0, never the +10 full-match reward.")
+    return reward
 
 
 def render_recording_kit() -> None:
@@ -1638,7 +1852,7 @@ def render_step_read_invoice() -> None:
         else:
             stage_badge("Invoice reader", "NOT RUN · click required", "review")
         render_technical_evidence(
-            sources=(("OCR, model and safety gate", "src/procureagent/ui_adapters.py", 392, 422),),
+            sources=(("OCR, model and safety gate", "src/procureagent/ui_adapters.py", 401, 447),),
             answer_key_note=True,
         )
 
@@ -1653,14 +1867,39 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
         )
         render_document_analysis(analysis)
         st.markdown("#### Your decision")
-        st.caption("No choice is preselected. Confirm, correct, or reject what the model displayed.")
+        selected_model = analysis.selected_model_candidate
+        if selected_model is not None:
+            st.info(
+                "LayoutLMv3 suggested invoice number: "
+                f"**{esc(selected_model.candidate.invoice_number)}**"
+            )
+        elif analysis.rule_candidates:
+            st.warning(
+                "LayoutLMv3 found no invoice number. The separate anchored rule found "
+                f"**{esc(analysis.rule_candidates[0].invoice_number)}**; use **Correct** "
+                "to enter it after checking the image, or reject the document."
+            )
+        else:
+            st.warning(
+                "Neither LayoutLMv3 nor the anchored rule found an invoice number. "
+                "Enter a checked correction or reject the document."
+            )
+        available_decisions = dict(REVIEW_DECISIONS)
+        if selected_model is None:
+            available_decisions.pop("Confirm the displayed invoice number")
+            st.caption(
+                "Confirm is unavailable because LayoutLMv3 found no candidate. "
+                "Correct the invoice number after checking the image, or reject the document."
+            )
+        else:
+            st.caption("No choice is preselected. Confirm, correct, or reject what the model displayed.")
         review_choice = st.radio(
             "Document review decision",
-            tuple(REVIEW_DECISIONS),
+            tuple(available_decisions),
             index=None,
             key="eval-document-review-choice",
         )
-        review_decision = REVIEW_DECISIONS.get(review_choice)
+        review_decision = available_decisions.get(review_choice)
         correction = st.text_input(
             "Correct invoice number",
             value="",
@@ -1680,8 +1919,10 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
             clear_flow("eval-human-decision")
             existing_human = None
 
-        can_record = review_decision is not None and (
-            review_decision != "CORRECT" or bool(correction.strip())
+        can_record = (
+            review_decision == "REJECT"
+            or (review_decision == "CORRECT" and bool(correction.strip()))
+            or (review_decision == "CONFIRM" and selected_model is not None)
         )
         if st.button(
             "Record my invoice decision",
@@ -1704,6 +1945,15 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
                     with st.spinner("Opening the exact synthetic AP record and running the payment safety check…"):
                         st.session_state["eval-prepared"] = prepare_procurement(human)
                     st.rerun()
+            except UiFlowError as exc:
+                if "absent from locked lookup" in str(exc):
+                    st.error(
+                        "That reviewed invoice number is not in this demo's locked Accounts "
+                        "Payable records, so no obligation was created. Check the number or "
+                        "choose a different invoice."
+                    )
+                else:
+                    st.error(f"Human review stopped safely: {type(exc).__name__}: {exc}")
             except Exception as exc:
                 st.error(f"Human review stopped safely: {type(exc).__name__}: {exc}")
 
@@ -1727,8 +1977,8 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
         selected = analysis.selected_model_candidate
         render_technical_evidence(
             sources=(
-                ("Explicit human identity gate", "src/procureagent/ui_adapters.py", 441, 489),
-                ("Exact lookup and plan verifier", "src/procureagent/ui_adapters.py", 510, 532),
+                ("Explicit human identity gate", "src/procureagent/ui_adapters.py", 450, 516),
+                ("Exact lookup and plan verifier", "src/procureagent/ui_adapters.py", 519, 569),
             ),
             runtime={
                 "document_id": analysis.image.document_id,
@@ -1795,8 +2045,8 @@ def render_step_approve(prepared: Any) -> None:
             st.rerun()
         render_technical_evidence(
             sources=(
-                ("Approval then one isolated step", "src/procureagent/ui_adapters.py", 605, 635),
-                ("Simulation-only state transition", "src/procureagent/gym.py", 170, 205),
+                ("Approval then one isolated step", "src/procureagent/ui_adapters.py", 614, 658),
+                ("Simulation-only state transition", "src/procureagent/gym.py", 170, 218),
             ),
             runtime={
                 "batch_id": prepared.batch.batch_id,
@@ -1812,13 +2062,17 @@ def render_step_match_receipt(simulation: Any) -> None:
     confirmed = st.session_state.get("eval-confirmed-payment")
     receipt = st.session_state.get("eval-receipt-analysis")
     status = "Complete" if confirmed is not None else (
-        "Proof ready" if receipt is not None and receipt.proof_gate.closes_obligation else "Receipt required"
+        "Proof ready" if receipt is not None and receipt.proof_gate.closes_obligation else (
+            "Receipt ID captured · proof incomplete"
+            if receipt is not None and receipt.parsed.receipt_id is not None
+            else "Receipt required"
+        )
     )
     with st.container(border=True):
         render_step_header(
             4,
             "Match the payment receipt",
-            "Scan the proof, compare its invoice number and amount, then close this one synthetic payable.",
+            "A receipt can confirm the simulated payment only when its receipt ID, supplier, invoice number, full amount, currency, and paid date all match.",
             status,
         )
         render_simulation(simulation)
@@ -1917,7 +2171,7 @@ def render_step_match_receipt(simulation: Any) -> None:
 
         receipt = st.session_state.get("eval-receipt-analysis")
         if receipt is None:
-            stage_badge("Receipt proof", "NOT RUN · Accounts Payable remains open", "review")
+            stage_badge("Receipt proof", "NOT RUN · scan a receipt to continue", "review")
         else:
             render_receipt_result(receipt)
 
@@ -1928,6 +2182,7 @@ def render_step_match_receipt(simulation: Any) -> None:
             key="eval-proof-confirmation",
             disabled=not proof_ready or confirmed is not None,
         )
+        st.caption("Confirmation is unavailable until all six receipt fields match and the receipt ID is unused by a confirmed proof.")
         confirm_payment = st.button(
             "Confirm match and close Accounts Payable",
             key="eval-confirm-payment",
@@ -2002,9 +2257,9 @@ def render_step_match_receipt(simulation: Any) -> None:
             runtime["cash_deducted_again"] = before_cash != after_cash
         render_technical_evidence(
             sources=(
-                ("Receipt OCR, parse and exact proof gate", "src/procureagent/ui_adapters.py", 733, 755),
+                ("Receipt OCR, parse and exact proof gate", "src/procureagent/ui_adapters.py", 742, 785),
                 ("RL-ready receipt reward · evaluation only", "src/procureagent/receipt_reward.py", 75, 109),
-                ("Evidence-only AP confirmation", "src/procureagent/ui_adapters.py", 779, 795),
+                ("Evidence-only AP confirmation", "src/procureagent/ui_adapters.py", 788, 807),
             ),
             runtime=runtime,
         )

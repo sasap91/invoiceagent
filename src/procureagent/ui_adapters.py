@@ -15,6 +15,7 @@ from threading import RLock
 from typing import Any, Mapping
 
 from .contracts import (
+    ContractValidationError,
     DailyRecommendationBatch,
     DocumentReviewDecision,
     DocumentStatus,
@@ -37,6 +38,7 @@ from .document import (
     InvoiceModelRun,
     ModelInvoiceCandidate,
     RyanInvoiceAdapter,
+    align_model_token_predictions,
     anchored_invoice_candidates,
     gate_document_identity,
 )
@@ -84,6 +86,13 @@ class DocumentAnalysis:
     expected_invoice_number: str
     selected_model_candidate: ModelInvoiceCandidate | None
     strict_exact: bool
+
+    def __post_init__(self) -> None:
+        if self.image.document_id != self.ocr.document_id:
+            raise ContractValidationError("OCR document is not bound to the ingested image")
+        if self.image.document_id != self.model_run.document_id:
+            raise ContractValidationError("model run is not bound to the ingested image")
+        align_model_token_predictions(self.model_run, self.ocr)
 
 
 @dataclass(frozen=True, slots=True)

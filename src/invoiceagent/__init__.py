@@ -32,10 +32,12 @@ from .extraction import (
     InvoiceNumberResult,
     LayoutLMv3InvoiceExtractor,
     OcrDocument,
+    TokenPrediction,
     decode_bio_spans,
     extract_anchored_identifier,
     is_valid_invoice_identifier,
     normalize_pixel_boxes,
+    public_model_ref,
 )
 
 __all__ = [
@@ -68,8 +70,10 @@ __all__ = [
     "InvoiceNumberResult",
     "LayoutLMv3InvoiceExtractor",
     "OcrDocument",
+    "TokenPrediction",
     "decode_bio_spans",
     "extract_anchored_identifier",
     "is_valid_invoice_identifier",
     "normalize_pixel_boxes",
+    "public_model_ref",
 ]

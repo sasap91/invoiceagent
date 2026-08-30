@@ -207,7 +207,7 @@ Never say:
 
 ## 7. Release checklist
 
-Latest evidence: **219 tests passed with two intentionally opt-in real-Tesseract smokes skipped** in the default run; the enabled focused Tesseract/UI/reward subset passes **49/49**. Offline acceptance is **9/9**, live acceptance is **10/10**, all **6/6** action/governance attacks are blocked, and all **8/8** receipt/proof attacks are blocked.
+Latest evidence: **262 tests passed with two intentionally opt-in real-Tesseract smokes skipped** in the default run; the enabled focused Tesseract/UI/reward subset passes **56/56**. Offline acceptance is **9/9**, live acceptance is **10/10**, all **6/6** action/governance attacks are blocked, and all **8/8** receipt/proof attacks are blocked.
 
 - [ ] `scripts/eval_procureagent.py` passes offline.
 - [ ] `scripts/eval_procureagent.py --with-model` passes after warmup.

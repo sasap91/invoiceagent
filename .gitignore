@@ -20,3 +20,6 @@ artifacts/
 data/private/
 *.onnx
 *.safetensors
+
+# Personal dev launch config: may point at a developer's own local model checkout.
+.claude/launch.json

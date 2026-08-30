@@ -473,21 +473,21 @@ def build_payment_proof(
             reasons.append("RECEIPT_ALREADY_CONSUMED")
         if parsed.receipt_id not in seen and parsed.receipt_id not in consumed:
             checks.append("UNUSED_RECEIPT_ID")
-    if parsed.supplier_id != invoice.supplier_id:
+    if parsed.supplier_id is not None and parsed.supplier_id != invoice.supplier_id:
         reasons.append("SUPPLIER_MISMATCH")
-    else:
+    elif parsed.supplier_id == invoice.supplier_id:
         checks.append("SUPPLIER_MATCH")
-    if parsed.invoice_number != invoice.invoice_number:
+    if parsed.invoice_number is not None and parsed.invoice_number != invoice.invoice_number:
         reasons.append("INVOICE_MISMATCH")
-    else:
+    elif parsed.invoice_number == invoice.invoice_number:
         checks.append("INVOICE_MATCH")
-    if parsed.amount_minor != invoice.amount_minor:
+    if parsed.amount_minor is not None and parsed.amount_minor != invoice.amount_minor:
         reasons.append("AMOUNT_MISMATCH")
-    else:
+    elif parsed.amount_minor == invoice.amount_minor:
         checks.append("FULL_AMOUNT_MATCH")
-    if parsed.currency != invoice.currency:
+    if parsed.currency is not None and parsed.currency != invoice.currency:
         reasons.append("CURRENCY_MISMATCH")
-    else:
+    elif parsed.currency == invoice.currency:
         checks.append("CURRENCY_MATCH")
     reasons = list(dict.fromkeys(reasons))
     if reasons:

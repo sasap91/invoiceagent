@@ -1,5 +1,6 @@
 """Render-level acceptance checks for InvoiceAgent's controlled P0 UI."""
 
+import hashlib
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
@@ -17,7 +18,7 @@ from procureagent.ui_adapters import _reset_cached_ryan_adapter_for_tests
 
 
 APP = str((Path(__file__).resolve().parents[1] / "procure_app.py").resolve())
-SESSION_SCHEMA = "invoiceagent-guided-v2-20260830"
+SESSION_SCHEMA = "invoiceagent-guided-v3-layoutlm-tokens-20260830"
 
 
 def boot() -> AppTest:
@@ -220,9 +221,16 @@ def test_receipt_in_invoice_slot_stops_with_friendly_message() -> None:
     receipt_ocr = TesseractOCR().run(receipt_image)
     assert "PAYMENT RECEIPT" in receipt_ocr.raw_text.upper()
     assert "PAID IN FULL" in receipt_ocr.raw_text.upper()
+    receipt_model_run = replace(
+        invoice_analysis.model_run,
+        document_id=receipt_image.document_id,
+        token_predictions=(),
+    )
     receipt_analysis = replace(
         invoice_analysis,
+        image=receipt_image,
         ocr=receipt_ocr,
+        model_run=receipt_model_run,
     )
     with patch.object(adapters, "analyze_invoice_upload", return_value=receipt_analysis):
         app = boot()
@@ -249,7 +257,12 @@ def test_bundled_invoice_is_not_misclassified_as_receipt() -> None:
     )
     invoice_image = ingest_image(invoice_path.read_bytes(), original_filename=invoice_path.name)
     invoice_ocr = TesseractOCR().run(invoice_image)
-    analysis = replace(analyzed_document(), ocr=invoice_ocr)
+    mocked = analyzed_document()
+    analysis = replace(
+        mocked,
+        ocr=invoice_ocr,
+        model_run=replace(mocked.model_run, token_predictions=()),
+    )
 
     with patch.object(adapters, "analyze_invoice_upload", return_value=analysis):
         app = boot()
@@ -259,6 +272,85 @@ def test_bundled_invoice_is_not_misclassified_as_receipt() -> None:
     assert not app.exception
     assert "This appears to be a payment receipt" not in page_text(app)
     assert app.radio(key="eval-document-review-choice")
+
+
+def test_rule_only_suggestion_cannot_be_confirmed_as_model_output() -> None:
+    from tests.test_procure_ui_adapters import InvoiceOcr, NoCandidateModel
+    import procureagent.ui_adapters as adapters
+
+    analysis = adapters.analyze_invoice_upload(
+        Path(__file__).resolve().parents[1]
+        .joinpath("data/procureagent/assets/fresh_farms_invoice.png")
+        .read_bytes(),
+        filename="fresh_farms_invoice.png",
+        ocr_engine=InvoiceOcr(),
+        model_adapter=NoCandidateModel(),
+    )
+    review = boot_with_flow(**{"eval-document-analysis": analysis})
+
+    assert not review.exception
+    options = list(review.radio(key="eval-document-review-choice").options)
+    assert options == ["Correct the invoice number", "Reject this document"]
+    assert "Confirm the displayed invoice number" not in options
+    assert review.button(key="eval-record-human-review").disabled
+    assert "Confirm is unavailable because LayoutLMv3 found no candidate" in page_text(review)
+    assert "use **Correct**" in page_text(review)
+
+
+def test_unknown_correction_shows_friendly_fail_closed_message() -> None:
+    from tests.test_procure_ui_adapters import analyzed_document
+
+    review = boot_with_flow(**{"eval-document-analysis": analyzed_document()})
+    review.radio(key="eval-document-review-choice").set_value(
+        "Correct the invoice number"
+    ).run()
+    review.text_input(key="eval-corrected-reference").set_value("ZZ-99999").run()
+    assert not review.button(key="eval-record-human-review").disabled
+    review.button(key="eval-record-human-review").click().run()
+
+    assert not review.exception
+    assert "not in this demo's locked Accounts Payable records" in page_text(review)
+    assert "eval-human-decision" not in review.session_state
+    assert "eval-prepared" not in review.session_state
+
+
+def test_receipt_id_only_view_is_clean_and_cannot_false_close_ap() -> None:
+    from tests.test_procure_ui_adapters import receipt_id_only_analysis
+
+    analysis, human, prepared, simulation, receipt = receipt_id_only_analysis()
+    receipt_path = Path(__file__).resolve().parents[1] / (
+        "data/procureagent/assets/fresh_farms_payment_receipt.png"
+    )
+    proof = boot_with_flow(
+        **{
+            "eval-document-analysis": analysis,
+            "eval-human-decision": human,
+            "eval-prepared": prepared,
+            "eval-simulation": simulation,
+            "eval-receipt-analysis": receipt,
+            "eval-receipt-input-key": hashlib.sha256(
+                receipt_path.read_bytes()
+            ).hexdigest(),
+        }
+    )
+
+    assert not proof.exception
+    text = page_text(proof)
+    assert "Receipt ID captured" in text
+    assert "19729058 · grounded in the uploaded OCR evidence" in text
+    assert "Manual matching details · why this ID cannot close AP yet" in [
+        item.label for item in proof.expander
+    ]
+    assert "Payment proof incomplete · 5 required fields missing" in text
+    assert "SIMULATED_PAYMENT_APPROVED" in text
+    assert "no second cash entry or PAID_CONFIRMED status was created" in text
+    assert "SAFE_REVIEW · reward -1.0" in text
+    assert "VERIFIED_FULL_MATCH · reward 10.0" not in text
+    assert metric_values(proof, "Receipt ID") == ["19729058"]
+    assert metric_values(proof, "Grounding") == ["OCR MATCH"]
+    assert proof.button(key="eval-confirm-payment").disabled
+    assert "pa-token muted" in text
+    assert "pa-token target receipt-id" in text
 
 
 def test_mocked_guided_flow_keeps_every_explicit_gate_and_no_second_cash_hit() -> None:
@@ -288,8 +380,13 @@ def test_mocked_guided_flow_keeps_every_explicit_gate_and_no_second_cash_hit() -
         app.button(key="eval-run-document-adapter").click().run()
         assert not app.exception
         assert "REVIEW_REQUIRED · LOW_MODEL_CONFIDENCE" in page_text(app)
-        assert "Invoice number · invoice rule and ryan model" in page_text(app)
+        assert "Invoice number · invoice rule and LayoutLMv3 model" in page_text(app)
         assert "Amount · invoice amount rule" in page_text(app)
+        assert "NOT_EVALUATED means the tokenizer truncated that word" in page_text(app)
+        assert any(
+            item.label == "LayoutLMv3 token evidence · 1/9 OCR words evaluated"
+            for item in app.expander
+        )
         assert app.radio(key="eval-document-review-choice").value is None
         assert app.button(key="eval-record-human-review").disabled
         assert "Strict exact" not in page_text(app)

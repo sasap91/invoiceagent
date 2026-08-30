@@ -163,6 +163,14 @@ python3.12 -m venv .venv-model
 
 Open <http://127.0.0.1:8501> and follow: **Read invoice → Confirm and plan → Approve simulation → Match receipt → Done — view AP history**. The first run downloads model files, so warm it once on reliable internet before presenting.
 
+To use Ryan's adapter from a local checkout instead of downloading it from Hugging Face, set the model path before launching. A blank revision means “use this local checkout”; the public evidence panel shows only the directory name, not the absolute path.
+
+```bash
+export INVOICEAGENT_ADAPTER_MODEL=/path/to/layoutlmv3-lora-invoice-number
+export INVOICEAGENT_ADAPTER_REVISION=
+./scripts/run_demo.sh
+```
+
 To expose the running Mac through a new temporary Cloudflare URL:
 
 ```bash
@@ -200,7 +208,7 @@ HF_HUB_DISABLE_PROGRESS_BARS=1 \
   --output data/procureagent/eval/acceptance_live_v1.json
 ```
 
-Current evidence: **219 passed, 2 intentionally opt-in real-Tesseract smokes skipped** in the default run; the focused Tesseract/UI/reward run passes **49/49** with both smokes enabled. Offline acceptance is **9/9** and real-model acceptance is **10/10**. The safety harness blocks **6/6** action/governance attacks and **8/8** receipt ambiguity, mismatch, duplicate, and forgery attacks.
+Current evidence: **262 passed, 2 intentionally opt-in real-Tesseract smokes skipped** in the default run; the focused Tesseract/UI/reward run passes **56/56** with both smokes enabled. Offline acceptance is **9/9** and real-model acceptance is **10/10**. The safety harness blocks **6/6** action/governance attacks and **8/8** receipt ambiguity, mismatch, duplicate, and forgery attacks.
 
 One real-checkpoint smoke:
 
