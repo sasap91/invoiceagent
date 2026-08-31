@@ -37,8 +37,6 @@ from demo.procure_scenarios import (  # noqa: E402
 )
 from procureagent.contracts import (  # noqa: E402
     DocumentReviewDecision,
-    InvoiceIdentity,
-    load_scenario,
     InvoicePaymentStatus,
     PaymentProofSource,
     ProcurementAction,
@@ -46,22 +44,15 @@ from procureagent.contracts import (  # noqa: E402
 )
 from procureagent.document import align_model_token_predictions  # noqa: E402
 from procureagent.ui_adapters import (  # noqa: E402
-    RejectedDay,
     UiFlowError,
     analyze_invoice_upload,
     analyze_receipt_upload,
     approve_and_simulate,
     confirm_verified_payment,
     load_overview_run,
-    modify_and_reverify,
     prepare_procurement,
-    propose_day,
     record_human_identity_decision,
-    reject_day,
-    resolve_verified_identities,
-    start_episode,
 )
-from procureagent.evaluation import compare_policies  # noqa: E402
 from procureagent.router_lab import run_router_lab  # noqa: E402
 from procureagent.receipt_reward import (  # noqa: E402
     ReceiptMatchAction,
@@ -382,19 +373,6 @@ FLOW_KEYS = (
     "eval-confirmed-payment",
 )
 
-# The live episode is deliberately NOT a FLOW_KEYS member. clear_flow fires on
-# every document and receipt input change, so holding the gym there would let a
-# keystroke in an unrelated box silently rewind the restaurant to day 0.
-EPISODE_KEY = "eval-episode"
-DAY_KEYS = ("eval-day-proposal", "eval-day-rejection")
-CASHFLOW_SCENARIO_PATH = ROOT / "data" / "procureagent" / "scenario_cashflow_v1.json"
-
-
-def clear_day() -> None:
-    for key in DAY_KEYS:
-        st.session_state.pop(key, None)
-
-
 GUIDED_WIDGET_KEYS = (
     "eval-document-review-choice",
     "eval-corrected-reference",
@@ -415,10 +393,6 @@ if st.session_state.get("invoiceagent-session-schema") != APP_SESSION_SCHEMA:
         "eval-receipt-input-key",
         "eval-document-kind-error",
         "eval-ap-history-visible",
-        EPISODE_KEY,
-        *DAY_KEYS,
-        "eval-operator-decision",
-        "eval-week-scenario",
     ):
         st.session_state.pop(stale_key, None)
     st.session_state["invoiceagent-session-schema"] = APP_SESSION_SCHEMA
@@ -437,7 +411,6 @@ STEP_META = (
     (2, "Verify fields", "Human review"),
     (3, "Simulate payment", "Dr AP · Cr Cash"),
     (4, "Match receipt", "Close the loop"),
-    (5, "Continue the week", "Days 1-6 governed"),
 )
 
 RECEIPT_FIELD_LABELS = {
@@ -533,10 +506,6 @@ def reset_guided_flow() -> None:
         "eval-receipt-input-key",
         "eval-document-kind-error",
         "eval-ap-history-visible",
-        EPISODE_KEY,
-        *DAY_KEYS,
-        "eval-operator-decision",
-        "eval-week-scenario",
     ):
         st.session_state.pop(key, None)
 
@@ -548,16 +517,14 @@ def current_guided_step() -> int:
         return 2
     if st.session_state.get("eval-simulation") is None:
         return 3
-    if st.session_state.get("eval-confirmed-payment") is None:
-        return 4
-    return 5
+    return 4
 
 
 def render_progress_rail(current_step: int) -> None:
     items = []
     confirmed = st.session_state.get("eval-confirmed-payment") is not None
     for number, label, detail in STEP_META:
-        state = "done" if number < current_step or (number == 4 and confirmed and current_step > 4) else (
+        state = "done" if number < current_step or (number == 4 and confirmed) else (
             "current" if number == current_step else "upcoming"
         )
         aria = ' aria-current="step"' if state == "current" else ""
@@ -1852,7 +1819,7 @@ def render_step_read_invoice() -> None:
         else:
             stage_badge("Invoice reader", "NOT RUN · click required", "review")
         render_technical_evidence(
-            sources=(("OCR, model and safety gate", "src/procureagent/ui_adapters.py", 401, 447),),
+            sources=(("OCR, model and safety gate", "src/procureagent/ui_adapters.py", 194, 242),),
             answer_key_note=True,
         )
 
@@ -1977,8 +1944,8 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
         selected = analysis.selected_model_candidate
         render_technical_evidence(
             sources=(
-                ("Explicit human identity gate", "src/procureagent/ui_adapters.py", 450, 516),
-                ("Exact lookup and plan verifier", "src/procureagent/ui_adapters.py", 519, 569),
+                ("Explicit human identity gate", "src/procureagent/ui_adapters.py", 243, 291),
+                ("Exact lookup and plan verifier", "src/procureagent/ui_adapters.py", 312, 341),
             ),
             runtime={
                 "document_id": analysis.image.document_id,
@@ -2045,8 +2012,8 @@ def render_step_approve(prepared: Any) -> None:
             st.rerun()
         render_technical_evidence(
             sources=(
-                ("Approval then one isolated step", "src/procureagent/ui_adapters.py", 614, 658),
-                ("Simulation-only state transition", "src/procureagent/gym.py", 170, 218),
+                ("Approval then one isolated step", "src/procureagent/ui_adapters.py", 342, 369),
+                ("Simulation-only state transition", "src/procureagent/gym.py", 144, 192),
             ),
             runtime={
                 "batch_id": prepared.batch.batch_id,
@@ -2257,9 +2224,9 @@ def render_step_match_receipt(simulation: Any) -> None:
             runtime["cash_deducted_again"] = before_cash != after_cash
         render_technical_evidence(
             sources=(
-                ("Receipt OCR, parse and exact proof gate", "src/procureagent/ui_adapters.py", 742, 785),
+                ("Receipt OCR, parse and exact proof gate", "src/procureagent/ui_adapters.py", 370, 415),
                 ("RL-ready receipt reward · evaluation only", "src/procureagent/receipt_reward.py", 75, 109),
-                ("Evidence-only AP confirmation", "src/procureagent/ui_adapters.py", 788, 807),
+                ("Evidence-only AP confirmation", "src/procureagent/ui_adapters.py", 416, 438),
             ),
             runtime=runtime,
         )
@@ -2280,328 +2247,6 @@ def render_step_match_receipt(simulation: Any) -> None:
             render_ap_history_dashboard(confirmed)
 
 
-def ledger_from_simulation(simulation: Any) -> dict[Any, Any]:
-    """Carry the day-0 human-reviewed identity into the rest of the week."""
-
-    human = getattr(simulation.prepared, "human_decision", None)
-    if human is None or human.verified_identity is None:
-        return {}
-    from procureagent.ui_adapters import record_from_human_decision
-
-    record = record_from_human_decision(human, day=0)
-    return {record.identity: record}
-
-
-def week_episode(simulation: Any) -> Any:
-    """Adopt the gym step 3 already advanced, or start a cash-flow week."""
-
-    episode = st.session_state.get(EPISODE_KEY)
-    if episode is None:
-        from procureagent.ui_adapters import EpisodeSession
-
-        episode = EpisodeSession(
-            environment=simulation.environment,
-            reset_info={
-                "scenario_id": simulation.environment.scenario.scenario_id,
-                "seed": simulation.info.get("seed"),
-                "horizon_days": simulation.environment.horizon_days,
-                "simulation_only": True,
-            },
-            identity_ledger=ledger_from_simulation(simulation),
-            history=[simulation],
-        )
-        st.session_state[EPISODE_KEY] = episode
-    return episode
-
-
-def render_identity_provenance(proposal: Any) -> None:
-    """Say plainly which identities were read from a document and which were not."""
-
-    names = supplier_names()
-    rows = []
-    for record in proposal.identity_provenance:
-        detail = (
-            f"day {record.reviewed_on_day} · doc {record.document_id}"
-            if record.read_from_document
-            else "never read from a document in this session"
-        )
-        rows.append(
-            {
-                "Supplier": names.get(record.identity.supplier_id, record.identity.supplier_id),
-                "Invoice": record.identity.invoice_number,
-                "Identity provenance": record.provenance,
-                "Evidence": detail,
-            }
-        )
-    render_table(rows)
-    st.caption(
-        "Only identities labeled HUMAN_REVIEWED_DOCUMENT were read by Tesseract and "
-        "LayoutLMv3 in this session. FIXTURE_REPLAY identities come from the locked "
-        "synthetic scenario. Later days carry that exact provenance forward; no "
-        "document is re-read."
-    )
-
-
-def render_schedule_comparison(episode: Any) -> None:
-    """Show WHEN each invoice was paid, beside the day the oracle would choose."""
-
-    try:
-        comparison = compare_policies(episode.environment.scenario)
-    except Exception as exc:  # bounded evaluation; never break the demo over it
-        st.caption(f"Schedule oracle unavailable: {type(exc).__name__}: {exc}")
-        return
-
-    actual: dict[str, int] = {}
-    for item in episode.history:
-        if isinstance(item, RejectedDay):
-            continue
-        for number in item.info.get("paid_invoice_numbers", ()):
-            actual.setdefault(number, item.info["day_before"])
-
-    names = supplier_names()
-    rows = [
-        {
-            "Supplier": names.get(payment.supplier_id, payment.supplier_id),
-            "Invoice": payment.invoice_number,
-            "Amount": format_minor(payment.exact_amount_minor),
-            "Operator approved on day": actual.get(payment.invoice_number, "not yet"),
-            "Oracle would pay on day": (
-                "never" if payment.payment_day is None else payment.payment_day
-            ),
-        }
-        for payment in comparison.schedule_oracle.scheduled_payments
-    ]
-    if not rows:
-        return
-    st.markdown("**Payment timing · operator versus bounded oracle**")
-    render_table(rows)
-    st.caption(
-        f"Oracle enumerated {comparison.schedule_oracle.enumerated_schedules} schedules "
-        f"({comparison.schedule_oracle.legal_schedules} legal). It is an evaluation "
-        "reference that sees the whole frozen scenario, not a policy the agent could "
-        "run. 'Never' means paying that invoice costs more reward than it saves."
-    )
-
-
-def render_week_history(episode: Any) -> None:
-    rows = []
-    for item in episode.history:
-        if isinstance(item, RejectedDay):
-            rows.append(
-                {
-                    "Day": item.day,
-                    "Batch": item.proposal.batch.batch_id,
-                    "Decision": "REJECT",
-                    "Cash": f"{format_minor(item.cash_before_minor)} (unchanged)",
-                    "State version": f"{item.state_version_before} (unchanged)",
-                }
-            )
-        else:
-            rows.append(
-                {
-                    "Day": f"{item.info['day_before']}→{item.info['day_after']}",
-                    "Batch": item.info["batch_id"],
-                    "Decision": "APPROVE",
-                    "Cash": f"{format_minor(item.info['cash_before_minor'])} → "
-                    f"{format_minor(item.info['cash_after_minor'])}",
-                    "State version": item.state_after.state_version,
-                }
-            )
-    if rows:
-        st.markdown("**Week audit trail**")
-        render_table(rows)
-
-
-def render_week_controls(episode: Any, proposal: Any, *, blocked: bool) -> None:
-    """APPROVE / MODIFY / REJECT. Rendered even with no proposal, so the gate shows."""
-
-    day_label = proposal.day if proposal is not None else episode.day
-    decision = st.radio(
-        "Operator decision",
-        ("APPROVE", "MODIFY", "REJECT"),
-        key="eval-operator-decision",
-        horizontal=True,
-    )
-
-    if decision == "APPROVE":
-        st.warning(
-            "The verifier has run, but nothing has changed. Only this button records "
-            "APPROVE and advances one simulated day."
-        )
-        if st.button(
-            f"APPROVE day {day_label} and advance one simulated day",
-            key="eval-approve-day",
-            type="primary",
-            disabled=blocked or proposal is None,
-            use_container_width=True,
-        ):
-            try:
-                run = approve_and_simulate(proposal)
-            except Exception as exc:
-                st.error(f"Approval stopped safely: {type(exc).__name__}: {exc}")
-            else:
-                episode.history.append(run)
-                clear_day()
-                st.rerun()
-
-    elif decision == "MODIFY":
-        st.caption(
-            "MODIFY changes an action, never an amount. The replacement gets a new "
-            "batch ID and must clear the verifier again."
-        )
-        choices: dict[Any, Any] = {}
-        for item in (proposal.batch.recommendations if proposal is not None else ()):
-            picked = st.selectbox(
-                f"{item.supplier_id} · {item.invoice_number}",
-                ("PAY", "DEFER", "VERIFY"),
-                index=("PAY", "DEFER", "VERIFY").index(item.action.value),
-                key=f"eval-modify-{item.supplier_id}",
-            )
-            if picked != item.action.value:
-                choices[item.identity] = ProcurementAction(picked)
-        if st.button(
-            "Apply MODIFY and re-verify", key="eval-apply-modify", disabled=proposal is None
-        ):
-            if not choices:
-                st.warning("MODIFY must change at least one action.")
-            else:
-                try:
-                    st.session_state["eval-day-proposal"] = modify_and_reverify(
-                        proposal, choices
-                    )
-                except Exception as exc:
-                    st.error(f"MODIFY stopped safely: {type(exc).__name__}: {exc}")
-                else:
-                    st.rerun()
-        if (
-            proposal is not None
-            and proposal.origin == "OPERATOR_MODIFIED"
-            and st.button("Discard modifications", key="eval-discard-modify")
-        ):
-            clear_day()
-            st.rerun()
-
-    else:
-        if st.button(
-            f"REJECT day {day_label} · no state change",
-            key="eval-reject-day",
-            disabled=proposal is None,
-        ):
-            rejected = reject_day(proposal, sequence=len(episode.history) + 1)
-            episode.history.append(rejected)
-            st.session_state["eval-day-rejection"] = rejected
-            st.rerun()
-
-
-def render_step_continue_week(simulation: Any) -> None:
-    """Step 5: run the rest of the simulated week, one operator decision per day."""
-
-    episode = week_episode(simulation)
-    environment = episode.environment
-    state = environment.state
-
-    with st.container(border=True):
-        render_step_header(
-            5,
-            "Continue the week",
-            "The first payment is closed. Now decide what to pay on each remaining day, "
-            "and when. Nothing moves without your approval.",
-            "Complete" if episode.finished else f"Day {state.day} of {episode.horizon_days}",
-        )
-
-        cols = st.columns(4)
-        cols[0].metric("Simulated day", f"{state.day} of {episode.horizon_days}")
-        cols[1].metric("Cash", format_minor(state.cash_minor))
-        cols[2].metric("Days committed", episode.steps_taken)
-        cols[3].metric("Rejections", episode.rejections)
-        inflow = environment.scenario.daily_cash_inflow_minor
-        st.caption(
-            f"Scenario {environment.scenario.scenario_id} · simulated revenue "
-            f"{format_minor(inflow)}/day · simulation only, no bank is connected."
-        )
-        if inflow == 0:
-            st.info(
-                "On this frozen scenario the week is already decided: after paying the "
-                "two critical suppliers there is $1,000 left, PackRight's $1,500 never "
-                "becomes affordable, and the bounded oracle agrees it should never be "
-                "paid. The remaining days are deliberate no-ops. Start the revenue week "
-                "below to see the agent actually choose a payment day."
-            )
-            if st.button(
-                "Start the week again with daily revenue", key="eval-week-cashflow"
-            ):
-                st.session_state[EPISODE_KEY] = start_episode(
-                    load_scenario(str(CASHFLOW_SCENARIO_PATH))
-                )
-                clear_day()
-                st.rerun()
-
-        if episode.finished:
-            outcome = (
-                "TERMINATED · a high-criticality supplier ran out of stock"
-                if environment.terminated
-                else f"TRUNCATED · reached the {episode.horizon_days}-day horizon"
-            )
-            stage_badge(
-                "Week complete", outcome, "ok" if environment.truncated else "stop"
-            )
-            render_schedule_comparison(episode)
-            render_week_history(episode)
-            return
-
-        proposal = st.session_state.get("eval-day-proposal")
-        if proposal is not None and proposal.state_version != state.state_version:
-            clear_day()
-            proposal = None
-        if proposal is None:
-            try:
-                proposal = propose_day(
-                    environment, identity_ledger=episode.identity_ledger
-                )
-            except UiFlowError as exc:
-                st.error(f"Day proposal stopped safely: {exc}")
-                render_week_history(episode)
-                return
-            st.session_state["eval-day-proposal"] = proposal
-
-        render_batch_cards(
-            proposal.batch, f"day {proposal.day} · {proposal.origin.lower()}"
-        )
-        st.caption(
-            f"Proposal binds state version {proposal.state_version} · batch "
-            f"{proposal.batch.batch_id}"
-        )
-        render_identity_provenance(proposal)
-
-        blocked = proposal.verification.result is VerifierResult.BLOCKED
-        stage_badge(
-            f"Safety verifier · day {proposal.day}",
-            f"{proposal.verification.result.value} · "
-            + (", ".join(proposal.verification.reason_codes) or "no reason codes"),
-            "stop" if blocked else "review",
-        )
-        if not blocked and not proposal.commits_cash:
-            st.info(
-                "This day commits $0. Approving still advances one simulated day, ages "
-                "invoices, accrues late fees, and can disrupt a supplier."
-            )
-
-        rejection = st.session_state.get("eval-day-rejection")
-        if rejection is not None and rejection.day == proposal.day:
-            stage_badge(
-                f"Operator REJECT · day {rejection.day}",
-                f"decision {rejection.operator_decision.decision_id} · day stayed "
-                f"{rejection.day} · state version {rejection.state_version_before} → "
-                f"{rejection.state_version_after} (unchanged) · ProcureGym.step was "
-                f"never called · rejections so far: {episode.rejections}",
-                "stop",
-            )
-
-        render_week_controls(episode, proposal, blocked=blocked)
-        render_schedule_comparison(episode)
-        render_week_history(episode)
-
-
 def render_eval() -> None:
     """Render the default four-step guided demo (legacy name kept for tests)."""
 
@@ -2614,11 +2259,8 @@ def render_eval() -> None:
         render_step_confirm_and_plan(st.session_state["eval-document-analysis"])
     elif step == 3:
         render_step_approve(st.session_state["eval-prepared"])
-    elif step == 4:
-        render_step_match_receipt(st.session_state["eval-simulation"])
     else:
         render_step_match_receipt(st.session_state["eval-simulation"])
-        render_step_continue_week(st.session_state["eval-simulation"])
 
 
 def render_task_status() -> None:
