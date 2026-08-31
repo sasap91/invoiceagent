@@ -116,11 +116,17 @@ Three beats worth recording, all verified:
   `BLOCKED · OVER_BUDGET` — $1,500 against $1,000 of cash — and APPROVE stays
   disabled. Modifying CleanPro to `PAY` returns
   `BLOCKED · UNRESOLVED_BUSINESS_CONTEXT` instead.
-- **Switch the scenario picker to `restaurant_cashflow_v1`.** Identical to the
-  locked fixture except for $250/day of simulated revenue. PackRight is deferred
-  on days 0 and 1 because it is unaffordable, then paid on **day 2**, the day it
-  fits. That is the agent choosing *when*, and the bounded oracle independently
-  agrees on day 2.
+- **Switch the scenario picker to `restaurant_cashflow_v1`.** It keeps the same
+  suppliers, adds $300/day of simulated revenue and one small $180 Linen Co bill.
+  Day 0 **asks permission** because Fresh Farms and Prime Foods are both above the
+  $500 standing authority. Approve it, and day 1 shows the agent **paying Linen Co
+  $180 on its own, with no operator click**. Day 6 asks again for PackRight's
+  $1,500 — the day it finally fits.
+- **Say what standing authority does and does not do.** It skips the operator
+  click, never a safety check: the verifier still runs in full, a blocked batch is
+  never auto-approved, a day that pays nothing still needs a person, and every
+  automatic approval carries an `autopay` decision ID so it stays distinguishable
+  in the audit trail.
 
 On the locked fixture, days 1–6 are deliberately six identical no-op batches:
 cash is stuck at $1,000, the oracle says PackRight should be paid `never`, and

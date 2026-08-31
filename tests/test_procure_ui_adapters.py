@@ -25,6 +25,7 @@ from procureagent.document import (
     ModelInvoiceCandidate,
     RyanInvoiceAdapter,
 )
+from procureagent.governance import auto_approval_decision
 from procureagent.ocr import OcrResult, OcrStatus, OcrWord, PixelBox
 from procureagent.receipt_reward import ReceiptMatchAction, score_receipt_match
 from procureagent.ui_adapters import (
@@ -36,6 +37,7 @@ from procureagent.ui_adapters import (
     approve_and_simulate,
     confirm_verified_payment,
     get_cached_ryan_adapter,
+    advance_auto_approved_days,
     modify_and_reverify,
     prepare_procurement,
     propose_day,
@@ -389,6 +391,7 @@ def test_cached_ryan_adapter_is_singleton_under_concurrent_access(monkeypatch):
 
 CASHFLOW_SCENARIO = ROOT / "data/procureagent/scenario_cashflow_v1.json"
 PACKRIGHT = InvoiceIdentity("packright", "PR-15007")
+LINEN = InvoiceIdentity("linen_co", "LN-00042")
 CLEANPRO = InvoiceIdentity("cleanpro", "CP-70019")
 
 
@@ -420,7 +423,7 @@ def test_propose_day_plans_against_live_state_not_the_initial_state(episode):
     assert proposal.day == 1
     assert proposal.state_version == 2
     # Fresh Farms and Prime Foods were paid on day 0 and have left the batch.
-    assert set(actions_of(proposal)) == {PACKRIGHT, CLEANPRO}
+    assert set(actions_of(proposal)) == {PACKRIGHT, CLEANPRO, LINEN}
 
 
 def test_seven_day_episode_advances_only_on_explicit_operator_approval(episode):
@@ -452,10 +455,12 @@ def test_revenue_lets_the_agent_choose_a_payment_day(episode):
             paid_on = proposal.day
             break
 
-    assert paid_on == 2
+    assert paid_on == 6
 
 
 def test_days_without_any_pay_still_require_an_operator_commit(episode):
+    # Advance past day 1, which now pays the small linen invoice.
+    approve_and_simulate(propose_day(episode.environment))
     approve_and_simulate(propose_day(episode.environment))
     proposal = propose_day(episode.environment)
 
@@ -564,4 +569,93 @@ def test_a_paid_invoice_drops_out_of_the_verified_identity_set(episode):
 
     covered = {record.identity for record in proposal.identity_provenance}
     assert InvoiceIdentity("fresh_farms", "FF-10482") not in covered
-    assert covered == {PACKRIGHT, CLEANPRO}
+    assert covered == {PACKRIGHT, CLEANPRO, LINEN}
+
+
+# ---------------------------------------------------------------------------
+# Standing authority: pay small bills, stop and ask for large ones
+# ---------------------------------------------------------------------------
+
+
+def test_a_payment_at_or_below_the_limit_is_auto_approved(episode):
+    """The agent settles the small linen bill without an operator click."""
+
+    # Day 0 pays the two critical suppliers and needs a person.
+    approve_and_simulate(propose_day(episode.environment))
+
+    committed, stopped = advance_auto_approved_days(episode)
+
+    assert stopped is None or "LN-00042" not in str(stopped.over_limit)
+    paid = [n for run in committed for n in run.info["paid_invoice_numbers"]]
+    assert "LN-00042" in paid
+    approval = committed[0].approved_batch.operator_decision
+    assert approval.decision_id.startswith("autopay"), (
+        "an automatic approval must stay distinguishable from a human click"
+    )
+
+
+def test_a_payment_above_the_limit_stops_for_the_operator(episode):
+    proposal = propose_day(episode.environment)
+    decision = auto_approval_decision(proposal.batch, proposal.verification)
+
+    assert decision.requires_operator
+    assert "ABOVE_AUTO_APPROVAL_LIMIT" in decision.reason_codes
+    over = {identity.invoice_number for identity, _ in decision.over_limit}
+    assert {"FF-10482", "PF-25031"} <= over
+
+    # And nothing was committed on its own.
+    committed, stopped = advance_auto_approved_days(episode)
+    assert committed == []
+    assert stopped is not None and stopped.requires_operator
+    assert episode.day == 0
+
+
+def test_a_day_that_pays_nothing_still_needs_the_operator(episode):
+    """Standing authority delegates permission to pay, not to advance time.
+
+    A zero-payment day still ages invoices, accrues late fees and can disrupt a
+    supplier, so it stays with the operator rather than being swept through.
+    """
+
+    approve_and_simulate(propose_day(episode.environment))  # day 0
+    advance_auto_approved_days(episode)                     # day 1 auto-pays linen
+    proposal = propose_day(episode.environment)
+
+    assert not proposal.commits_cash
+    decision = auto_approval_decision(proposal.batch, proposal.verification)
+    assert decision.requires_operator
+    assert "NO_PAYMENT_TO_AUTHORISE" in decision.reason_codes
+
+
+def test_a_blocked_batch_is_never_auto_approved(episode):
+    """Standing authority can skip the operator click, never a safety check."""
+
+    proposal = propose_day(episode.environment)
+    blocked = modify_and_reverify(proposal, {PACKRIGHT: ProcurementAction.PAY})
+    assert blocked.verification.result is VerifierResult.BLOCKED
+
+    decision = auto_approval_decision(blocked.batch, blocked.verification)
+    assert decision.requires_operator
+    assert "VERIFIER_BLOCKED" in decision.reason_codes
+
+
+def test_raising_the_limit_widens_what_the_agent_may_settle_alone(episode):
+    proposal = propose_day(episode.environment)
+
+    tight = auto_approval_decision(proposal.batch, proposal.verification, limit_minor=0)
+    generous = auto_approval_decision(
+        proposal.batch, proposal.verification, limit_minor=1_000_000
+    )
+    assert tight.requires_operator
+    assert generous.allowed
+    assert generous.committed_minor == tight.committed_minor
+
+
+def test_auto_advance_never_runs_past_the_horizon(episode):
+    while not episode.finished:
+        committed, stopped = advance_auto_approved_days(episode)
+        if episode.finished:
+            break
+        approve_and_simulate(propose_day(episode.environment))
+    assert episode.day == episode.horizon_days
+    assert episode.environment.truncated

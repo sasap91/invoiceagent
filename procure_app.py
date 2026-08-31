@@ -48,6 +48,7 @@ from procureagent.document import align_model_token_predictions  # noqa: E402
 from procureagent.ui_adapters import (  # noqa: E402
     RejectedDay,
     UiFlowError,
+    advance_auto_approved_days,
     analyze_invoice_upload,
     analyze_receipt_upload,
     approve_and_simulate,
@@ -62,6 +63,7 @@ from procureagent.ui_adapters import (  # noqa: E402
     start_episode,
 )
 from procureagent.evaluation import compare_policies  # noqa: E402
+from procureagent.governance import DEFAULT_AUTO_APPROVAL_LIMIT_MINOR  # noqa: E402
 from procureagent.router_lab import run_router_lab  # noqa: E402
 from procureagent.receipt_reward import (  # noqa: E402
     ReceiptMatchAction,
@@ -628,7 +630,7 @@ def render_reward_signal(proof_gate: Any) -> Any:
 
 def render_step_header(number: int, title: str, description: str, status: str) -> None:
     st.markdown(
-        f'<header class="pa-step-head"><div><span class="number">Step {number} of 4</span>'
+        f'<header class="pa-step-head"><div><span class="number">Step {number} of {len(STEP_META)}</span>'
         f'<h2>{esc(title)}</h2><p>{esc(description)}</p></div>'
         f'<span class="pa-step-status">{esc(status)}</span></header>',
         unsafe_allow_html=True,
@@ -1852,7 +1854,7 @@ def render_step_read_invoice() -> None:
         else:
             stage_badge("Invoice reader", "NOT RUN · click required", "review")
         render_technical_evidence(
-            sources=(("OCR, model and safety gate", "src/procureagent/ui_adapters.py", 401, 447),),
+            sources=(("OCR, model and safety gate", "src/procureagent/ui_adapters.py", 405, 451),),
             answer_key_note=True,
         )
 
@@ -1977,8 +1979,8 @@ def render_step_confirm_and_plan(analysis: Any) -> None:
         selected = analysis.selected_model_candidate
         render_technical_evidence(
             sources=(
-                ("Explicit human identity gate", "src/procureagent/ui_adapters.py", 450, 516),
-                ("Exact lookup and plan verifier", "src/procureagent/ui_adapters.py", 519, 569),
+                ("Explicit human identity gate", "src/procureagent/ui_adapters.py", 454, 520),
+                ("Exact lookup and plan verifier", "src/procureagent/ui_adapters.py", 523, 573),
             ),
             runtime={
                 "document_id": analysis.image.document_id,
@@ -2045,7 +2047,7 @@ def render_step_approve(prepared: Any) -> None:
             st.rerun()
         render_technical_evidence(
             sources=(
-                ("Approval then one isolated step", "src/procureagent/ui_adapters.py", 614, 658),
+                ("Approval then one isolated step", "src/procureagent/ui_adapters.py", 618, 662),
                 ("Simulation-only state transition", "src/procureagent/gym.py", 170, 218),
             ),
             runtime={
@@ -2257,9 +2259,9 @@ def render_step_match_receipt(simulation: Any) -> None:
             runtime["cash_deducted_again"] = before_cash != after_cash
         render_technical_evidence(
             sources=(
-                ("Receipt OCR, parse and exact proof gate", "src/procureagent/ui_adapters.py", 742, 785),
+                ("Receipt OCR, parse and exact proof gate", "src/procureagent/ui_adapters.py", 807, 850),
                 ("RL-ready receipt reward · evaluation only", "src/procureagent/receipt_reward.py", 75, 109),
-                ("Evidence-only AP confirmation", "src/procureagent/ui_adapters.py", 788, 807),
+                ("Evidence-only AP confirmation", "src/procureagent/ui_adapters.py", 853, 872),
             ),
             runtime=runtime,
         )
@@ -2504,8 +2506,8 @@ def render_step_continue_week(simulation: Any) -> None:
         render_step_header(
             5,
             "Continue the week",
-            "The first payment is closed. Now decide what to pay on each remaining day, "
-            "and when. Nothing moves without your approval.",
+            "The first payment is closed. The agent settles small bills on its own and "
+            "stops for your decision on anything larger.",
             "Complete" if episode.finished else f"Day {state.day} of {episode.horizon_days}",
         )
 
@@ -2535,6 +2537,64 @@ def render_step_continue_week(simulation: Any) -> None:
                 )
                 clear_day()
                 st.rerun()
+
+        limit_minor = int(
+            st.number_input(
+                "Pay without asking, up to",
+                min_value=0,
+                max_value=500_000,
+                value=st.session_state.get("eval-autopay-limit", DEFAULT_AUTO_APPROVAL_LIMIT_MINOR),
+                step=10_000,
+                key="eval-autopay-limit",
+                help=(
+                    "Standing authority, per invoice. The agent commits any payment at or "
+                    "below this on its own; anything above it stops for your decision. "
+                    "Entered in minor units (cents), so 50000 is $500.00."
+                ),
+            )
+        )
+        st.caption(
+            f"Standing authority: **{format_minor(limit_minor)} per invoice**. This can skip "
+            "the operator click, never a safety check — an auto-approved batch still passes "
+            "the full verifier, a blocked batch is never auto-approved, and every automatic "
+            "approval is recorded with an `autopay` decision ID so it stays distinguishable "
+            "from a human click in the audit trail."
+        )
+
+        committed, stopped_by = advance_auto_approved_days(episode, limit_minor=limit_minor)
+        for run in committed:
+            paid = list(run.info["paid_invoice_numbers"])
+            stage_badge(
+                f"Agent paid automatically · day {run.info['day_before']}"
+                if paid
+                else f"Day {run.info['day_before']} advanced automatically",
+                (
+                    f"{', '.join(paid)} · under {format_minor(limit_minor)} · no operator "
+                    f"click · cash {format_minor(run.info['cash_before_minor'])} → "
+                    f"{format_minor(run.info['cash_after_minor'])}"
+                )
+                if paid
+                else (
+                    f"nothing to pay · day advanced · cash "
+                    f"{format_minor(run.info['cash_after_minor'])}"
+                ),
+                "ok",
+            )
+        if committed:
+            state = environment.state
+
+        if stopped_by is not None and stopped_by.over_limit:
+            names = supplier_names()
+            over = " · ".join(
+                f"{names.get(identity.supplier_id, identity.supplier_id)} "
+                f"{identity.invoice_number} {format_minor(amount)}"
+                for identity, amount in stopped_by.over_limit
+            )
+            stage_badge(
+                "Your permission is required",
+                f"above the {format_minor(limit_minor)} standing authority: {over}",
+                "review",
+            )
 
         if episode.finished:
             outcome = (

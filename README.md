@@ -24,11 +24,11 @@ flowchart TB
 
 We built a small, local-first document workflow with honest boundaries:
 
-- **Tesseract 5 OCR** runs locally and returns every word, confidence, and normalized box.
+- **Tesseract 5 OCR** runs locally and returns every word, confidence, and normalized box. All four supplier invoices are bundled as images, so each one is genuinely read rather than looked up.
 - **Ryan Nie's supervised LayoutLMv3 + LoRA small document specialist**—the demo's SLM component—proposes the invoice-number token only. It does not perform OCR, extract the invoice total, read the receipt, rank suppliers, or choose payments.
 - **Deterministic rules** ground the displayed invoice total and parse receipt supplier, invoice number, amount, currency, paid date, and receipt ID.
 - **Human gates and a batch verifier** require explicit document confirmation and payment approval; uncertainty fails closed.
-- **ProcureGym** applies approved actions to a seeded restaurant simulation so the team can measure cash, inventory runway, fees, and supplier outcomes without touching a real system.
+- **ProcureGym** applies approved actions to a seeded restaurant simulation so the team can measure cash, inventory runway, fees, and supplier outcomes without touching a real system. It runs the full seven-day horizon, one operator approval per day.
 - **An RL-ready receipt reward** scores exact proof as `+10`, safe review as `-1`, and unsafe acceptance as `-25`. No receipt policy or model was trained with this signal.
 - **A guided Streamlit UI** keeps the business story simple while exposing real code and evidence for engineers. The same app ships in a Docker container for deployment.
 
@@ -102,6 +102,30 @@ The locked scenario begins with **$5,000 cash** and **$6,200 of supplier obligat
 | **Completed (1)** | Fresh Farms `FF-10482` · $1,500 · `PAID_CONFIRMED` with receipt `RCPT-FF-10482` |
 
 The approved batch is interpreted as **Dr Accounts Payable—Fresh Farms $1,500 + Dr Accounts Payable—Prime Foods $2,500 / Cr Cash $4,000** once. It is a simulation, not a real general-ledger posting. Fresh Farms receipt confirmation adds proof and changes status only: cash remains $1,000 and the second cash impact is **$0**. Prime Foods remains paid in the simulation but awaiting proof.
+
+### Deciding *when* to pay
+
+Paying the right supplier the right amount is only two thirds of the problem. The third is timing, and the locked scenario cannot show it: after the two critical suppliers there is $1,000 left, PackRight's $1,500 never becomes affordable again, and the bounded oracle independently agrees it should be paid **never**. Schedule regret is exactly `0.000`. The remaining days are deliberate no-ops, and the demo says so rather than clicking through them in silence.
+
+So a second scenario exists. [`scenario_cashflow_v1.json`](data/procureagent/scenario_cashflow_v1.json) keeps the frozen fixture's suppliers and adds two things: **$300/day of simulated revenue**, credited after each committed batch so it can never fund a payment the verifier approved against this morning's cash, and one genuinely small bill — Linen Co `LN-00042` at **$180** — so the standing-authority path is visible.
+
+| Day | Cash at planning | What happens |
+|---|---|---|
+| 0 | $4,000 | **Asks permission** — Fresh Farms $1,500 and Prime Foods $2,500 are both above the limit |
+| 1 | $300 | **Pays Linen Co $180 on its own** — under the limit, no operator click |
+| 2–5 | rising | Operator commits each day; nothing is payable yet |
+| 6 | $1,620 | **Asks permission** — PackRight $1,500, the day it finally fits |
+
+### Standing authority: pay small bills, ask about large ones
+
+The operator delegates approval up to a limit — **$500 per invoice** by default, adjustable in the UI — and keeps it above that. This can skip the operator *click*, never a *check*:
+
+- an auto-approved batch still passes the full verifier, unchanged
+- a `BLOCKED` batch is never auto-approved
+- a day that pays nothing still needs the operator, because standing authority delegates permission to **pay**, and advancing time still ages invoices, accrues late fees and can disrupt a supplier
+- every automatic approval is recorded with an `autopay` decision ID, so it can never be mistaken for a human click when the audit trail is read back
+
+Governance is demonstrable rather than only tested. **REJECT** records a decision and provably changes no state—the badge asserts `ProcureGym.step was never called` and the state version is unchanged. **MODIFY** mints a new batch ID and must clear the verifier again: promoting PackRight to PAY on day 1 returns `BLOCKED · OVER_BUDGET`, and promoting CleanPro returns `BLOCKED · UNRESOLVED_BUSINESS_CONTEXT`.
 
 This supports **working-capital discipline** by putting cash, supplier obligations, due dates, operational inventory runway, and proof status in one view. It is not a full net-working-capital calculation. Formal net working capital requires all current assets minus all current liabilities; Accounts Receivable, balance-sheet inventory valuation, and other current assets and liabilities are outside this demo.
 
@@ -201,6 +225,9 @@ Keep that terminal open. The printed `trycloudflare.com` URL is public and unaut
 ### Recording fixtures
 
 - [`fresh_farms_invoice.png`](data/procureagent/assets/fresh_farms_invoice.png)
+- [`prime_foods_invoice.png`](data/procureagent/assets/prime_foods_invoice.png)
+- [`packright_invoice.png`](data/procureagent/assets/packright_invoice.png)
+- [`cleanpro_invoice.png`](data/procureagent/assets/cleanpro_invoice.png)
 - [`fresh_farms_payment_receipt.png`](data/procureagent/assets/fresh_farms_payment_receipt.png)
 - [`receipt_provenance.json`](data/procureagent/assets/receipt_provenance.json)
 - [`model_smoke_v1.json`](data/procureagent/eval/model_smoke_v1.json)
@@ -234,6 +261,8 @@ One real-checkpoint smoke:
 HF_HUB_DISABLE_PROGRESS_BARS=1 \
   .venv-model/bin/python scripts/evaluate_layoutlm.py --sample X51005200931
 ```
+
+All four bundled invoices are verified against real Tesseract 5.5.3 to return exactly one correct anchored candidate; the record is in [`invoice_assets_ocr_v1.json`](data/procureagent/eval/invoice_assets_ocr_v1.json), which claims OCR plus the deterministic rule only and does **not** claim a document-gate or model result. Each invoice still needs its own human CONFIRM, because the frozen `0.80` confidence threshold routes them all to review—that is the safeguard working, not a defect.
 
 The project keeps missing predictions in the denominator, separates fixture replay from live execution, and never turns model confidence into a claimed probability of correctness.
 
